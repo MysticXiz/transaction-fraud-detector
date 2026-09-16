@@ -6,7 +6,7 @@
 **Disciplinas:** Fábrica de Software / Tópicos Avançados em Ciência da Computação
 **Professores:** Pryscilla de Barros Gonçalves; Antenor Jorge Parnaiba da Silva
 
-**Equipe:** Bruno Severino de Almeida Rocha; Rodrigo Amorim Neves; Everson Padilha Ferreira
+**Equipe:** Bruno Severino de Almeida Rocha; Rodrigo Amorim Neves; Everson Padilha Ferreira; Eduardo Barros Magalhães
 
 **Repositório:** https://github.com/MysticXiz/transaction-fraud-detector
 
