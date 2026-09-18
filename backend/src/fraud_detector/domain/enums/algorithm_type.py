@@ -1,0 +1,7 @@
+from enum import Enum
+
+class TipoAlgoritmo(str, Enum):
+    ISOLATION_FOREST = "ISOLATION_FOREST"
+    LOGISTIC_REGRESSION = "LOGISTIC_REGRESSION"
+    XGBOOST = "XGBOOST"
+    AUTOENCODER = "AUTOENCODER"
