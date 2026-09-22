@@ -176,32 +176,50 @@ Espera-se que a eficiência decresça com o aumento de `n`, conforme a Lei de Am
 
 ```
 transaction-fraud-detector/
+├── alembic.ini
 ├── docker-compose.yml
-├── pyproject.toml
 ├── README.md
-├── docs/
-│   ├── sprint01-proposta.pdf
-│   ├── sprint02-documento-tecnico.md
-│   └── diagramas/
+├── backend/
+│   ├── requirements.txt
+│   └── src/
+│       └── fraud_detector/
+│           ├── main.py
+│           ├── api/
+│           │   ├── dependencies/   # autenticação, papéis e transações
+│           │   ├── routes/          # endpoints da API
+│           │   └── schemas/         # contratos de entrada e saída
+│           ├── application/
+│           │   ├── services/        # serviços de aplicação
+│           │   └── use_cases/       # casos de uso do sistema
+│           ├── computational/
+│           │   ├── detection/       # detecção de fraudes
+│           │   ├── execution/       # execução dos processamentos
+│           │   ├── ingestion/       # ingestão dos dados
+│           │   └── preprocessing/   # pré-processamento
+│           ├── config/              # configurações da aplicação
+│           ├── domain/
+│           │   ├── entities/        # entidades de domínio
+│           │   └── enums/           # enumerações do domínio
+│           └── infrastructure/
+│               ├── database/        # conexão e configuração do banco
+│               ├── models/           # modelos de persistência
+│               ├── repositories/     # acesso aos dados
+│               └── security/         # JWT e hashing de senhas
 ├── database/
 │   ├── schema.sql
 │   └── seeds.sql
-├── src/
-│   └── fraud_detector/
-│       ├── api/            # routers, schemas Pydantic, dependências
-│       ├── services/       # DatasetService, AnalysisService, BenchmarkService
-│       ├── core/
-│       │   ├── ingestion/  # DataLoader, DataValidator
-│       │   ├── preprocessing/
-│       │   ├── detection/  # FraudDetector e implementações
-│       │   └── execution/  # ChunkSplitter, executores, MetricsCollector
-│       ├── persistence/    # models ORM, repositórios, sessão
-│       └── config/
-├── migrations/             # Alembic
-├── tests/
-│   ├── unit/
-│   └── integration/
-└── notebooks/              # análise exploratória (PB07)
+├── docs/
+│   └── Sprint02_Documento_Tecnico.md                              # documentação complementar
+├── frontend/                       # aplicação web (Sprint 03)
+├── migrations/                     # migrações do Alembic
+│   ├── env.py
+│   ├── README
+│   ├── script.py.mako
+│   └── versions/
+├── notebooks/                      # notebooks de análise exploratória
+└── tests/
+    ├── integration/                # testes de integração
+    └── unit/                       # testes unitários
 ```
 
 ---
