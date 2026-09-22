@@ -1,7 +1,7 @@
-from src.fraud_detector.infrastructure.repositories.transaction_repository import TransactionRepository
+from src.fraud_detector.infrastructure.repositories.transaction_repository import RepositorioTransacao
 
-class DeleteTransactionUseCase:
-    def __init__(self, transaction_repository: TransactionRepository):
+class ExcluirTransacaoUseCase:
+    def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
     def execute(self, id_transacao: int) -> None:

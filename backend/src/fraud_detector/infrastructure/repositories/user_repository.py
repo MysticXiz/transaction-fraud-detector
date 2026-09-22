@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 
-class UserRepository:
+class RepositorioUsuario:
     def __init__(self, db: Session):
         self.db = db
 

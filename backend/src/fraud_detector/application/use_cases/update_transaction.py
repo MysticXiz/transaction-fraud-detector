@@ -1,11 +1,11 @@
-from src.fraud_detector.api.schemas.transaction import TransactionUpdateSchema
-from src.fraud_detector.infrastructure.repositories.transaction_repository import TransactionRepository
+from src.fraud_detector.api.schemas.transaction import TransacaoAtualizacaoSchema
+from src.fraud_detector.infrastructure.repositories.transaction_repository import RepositorioTransacao
 
-class UpdateTransactionUseCase:
-    def __init__(self, transaction_repository: TransactionRepository):
+class AtualizarTransacaoUseCase:
+    def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
-    def execute(self, id_transacao: int, transaction_data: TransactionUpdateSchema):
+    def execute(self, id_transacao: int, transaction_data: TransacaoAtualizacaoSchema):
         updates = transaction_data.model_dump(exclude_unset=True)
         if not updates:
             raise ValueError("Nenhum campo foi informado para atualização")

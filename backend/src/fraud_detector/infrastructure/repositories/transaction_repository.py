@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from src.fraud_detector.domain.entities.transaction import Transacao
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 
-class TransactionRepository:
+class RepositorioTransacao:
     def __init__(self, db: Session):
         self.db = db
 

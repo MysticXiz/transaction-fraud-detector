@@ -1,8 +1,8 @@
 from src.fraud_detector.domain.entities.transaction import Transacao
-from src.fraud_detector.infrastructure.repositories.transaction_repository import TransactionRepository
+from src.fraud_detector.infrastructure.repositories.transaction_repository import RepositorioTransacao
 
-class GetTransactionUseCase:
-    def __init__(self, transaction_repository: TransactionRepository):
+class ObterTransacaoUseCase:
+    def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
     def get_by_id(self, id_transacao: int) -> Transacao | None:

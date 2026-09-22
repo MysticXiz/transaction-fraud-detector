@@ -3,22 +3,22 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
-class UserRegisterSchema(BaseModel):
+class UsuarioCadastroSchema(BaseModel):
     nome: str = Field(..., min_length=2, max_length=120)
     email: EmailStr
     senha: str = Field(..., min_length=8, max_length=255)
 
 
-class UserLoginSchema(BaseModel):
+class UsuarioLoginSchema(BaseModel):
     email: EmailStr
     senha: str
 
-class UserUpdateSchema(BaseModel):
+class UsuarioAtualizacaoSchema(BaseModel):
     nome: str | None = Field(None, min_length=2, max_length=120)
     email: EmailStr | None = None
     senha: str | None = Field(None, min_length=8, max_length=255)
 
-class UserResponseSchema(BaseModel):
+class UsuarioRespostaSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id_usuario: int
@@ -28,6 +28,6 @@ class UserResponseSchema(BaseModel):
     ativo: bool
     criado_em: datetime
 
-class TokenSchema(BaseModel):
+class TokenRespostaSchema(BaseModel):
     access_token: str
     token_type: str
