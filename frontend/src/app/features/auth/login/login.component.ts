@@ -12,6 +12,7 @@ import { emailComDominioValido } from '../../../core/validators/email.validator'
   template: `
     <div class="tela">
       <div class="cartao df-card">
+        <p class="eyebrow">Acesso seguro</p>
         <h1 class="titulo">Acesso ao Sistema</h1>
         <form [formGroup]="form" (ngSubmit)="entrar()">
           <label class="df-label" for="email">E-mail</label>
@@ -57,6 +58,7 @@ import { emailComDominioValido } from '../../../core/validators/email.validator'
         background: var(--cor-fundo);
       }
       .cartao { width: 360px; }
+      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
       .titulo { font-size: 22px; font-weight: 700; margin-bottom: 22px; }
       .campo-senha { margin-top: 16px; }
       .campo-erro { margin-top: 14px; }

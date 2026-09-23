@@ -8,3 +8,6 @@ __pycache__/
 .vscode/
 .idea/
 *.log
+ANALISE_PROXIMOS_PASSOS.md
+iniciar-projeto.ps1
+docs/Sprint04.md

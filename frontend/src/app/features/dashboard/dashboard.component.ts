@@ -14,7 +14,10 @@ import { StatusExecucao } from '../../core/models/enums';
   imports: [RouterLink, StatCardComponent, StatusBadgeComponent],
   template: `
     <div class="cabecalho">
-      <h1>Visão Geral</h1>
+      <div>
+        <p class="eyebrow">Visão operacional</p>
+        <h1>Visão Geral</h1>
+      </div>
       <div class="acoes">
         <a routerLink="/datasets/importar" class="df-btn df-btn-secundario">Importar Dataset</a>
         <a routerLink="/analises/nova" class="df-btn df-btn-primary">Nova Análise</a>
@@ -77,6 +80,7 @@ import { StatusExecucao } from '../../core/models/enums';
     `
       .cabecalho { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
       .cabecalho h1 { font-size: 26px; font-weight: 700; }
+      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
       .acoes { display: flex; gap: 10px; }
       .grid-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
       .grid-inferior { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }

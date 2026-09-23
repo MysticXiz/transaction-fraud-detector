@@ -3,11 +3,12 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { DatasetService } from '../../../core/services/dataset.service';
+import { StyledSelectComponent, StyledSelectOption } from '../../../shared/components/styled-select/styled-select.component';
 
 @Component({
   selector: 'app-dataset-import',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, StyledSelectComponent],
   template: `
     <div class="cabecalho">
       <a routerLink="/datasets" class="voltar">← Voltar</a>
@@ -39,11 +40,7 @@ import { DatasetService } from '../../../core/services/dataset.service';
           </div>
           <div>
             <label class="df-label">Origem</label>
-            <select class="df-select" formControlName="origem">
-              <option value="Pública">Pública</option>
-              <option value="Sintética">Sintética</option>
-              <option value="Privada">Privada</option>
-            </select>
+            <app-styled-select formControlName="origem" [opcoes]="opcoesOrigem" />
           </div>
         </div>
 
@@ -86,6 +83,11 @@ import { DatasetService } from '../../../core/services/dataset.service';
   ],
 })
 export class DatasetImportComponent {
+  opcoesOrigem: StyledSelectOption[] = [
+    { valor: 'Pública', rotulo: 'Pública' },
+    { valor: 'Sintética', rotulo: 'Sintética' },
+    { valor: 'Privada', rotulo: 'Privada' },
+  ];
   private fb = inject(FormBuilder);
   private datasetService = inject(DatasetService);
   private router = inject(Router);

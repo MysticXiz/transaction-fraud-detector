@@ -7,11 +7,12 @@ import { AnalysisService } from '../../../core/services/analysis.service';
 import { Dataset, ModeloDeteccao } from '../../../core/models/dataset.model';
 import { ModoExecucao } from '../../../core/models/enums';
 import { NotificationService } from '../../../core/services/notification.service';
+import { StyledSelectComponent, StyledSelectOption } from '../../../shared/components/styled-select/styled-select.component';
 
 @Component({
   selector: 'app-analysis-config',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, StyledSelectComponent],
   template: `
     <div class="df-card cartao">
       <h1 class="titulo">Configurar análise</h1>
@@ -28,19 +29,11 @@ import { NotificationService } from '../../../core/services/notification.service
         <div class="linha-campos">
           <div>
             <label class="df-label">Dataset</label>
-            <select class="df-select" formControlName="id_dataset">
-              @for (ds of datasets(); track ds.id_dataset) {
-                <option [value]="ds.id_dataset">{{ ds.nome }}</option>
-              }
-            </select>
+            <app-styled-select formControlName="id_dataset" [opcoes]="opcoesDataset" />
           </div>
           <div>
             <label class="df-label">Modelo</label>
-            <select class="df-select" formControlName="id_modelo">
-              @for (m of modelos(); track m.id_modelo) {
-                <option [value]="m.id_modelo">{{ m.nome }} {{ m.versao }}</option>
-              }
-            </select>
+            <app-styled-select formControlName="id_modelo" [opcoes]="opcoesModelo" />
           </div>
         </div>
 
@@ -129,6 +122,8 @@ export class AnalysisConfigComponent implements OnInit {
   Modo = ModoExecucao;
   datasets = signal<Dataset[]>([]);
   modelos = signal<ModeloDeteccao[]>([]);
+  opcoesDataset: StyledSelectOption[] = [];
+  opcoesModelo: StyledSelectOption[] = [];
   nucleosDetectados = signal<number>(navigator.hardwareConcurrency || 4);
   carregando = signal(false);
   carregandoDados = signal(true);
@@ -160,6 +155,8 @@ export class AnalysisConfigComponent implements OnInit {
       next: ({ datasets, modelos }) => {
         this.datasets.set(datasets);
         this.modelos.set(modelos);
+        this.opcoesDataset = datasets.map((ds) => ({ valor: String(ds.id_dataset), rotulo: ds.nome }));
+        this.opcoesModelo = modelos.map((modelo) => ({ valor: String(modelo.id_modelo), rotulo: `${modelo.nome} ${modelo.versao}` }));
         const datasetIdParam = Number(this.route.snapshot.queryParamMap.get('datasetId'));
         const datasetSelecionado = datasets.find((d) => d.id_dataset === datasetIdParam) ?? datasets[0];
         if (datasetSelecionado) this.form.controls.id_dataset.setValue(datasetSelecionado.id_dataset);

@@ -11,7 +11,10 @@ import { NotificationService } from '../../../core/services/notification.service
   imports: [RouterLink, DatePipe, DecimalPipe],
   template: `
     <div class="cabecalho">
-      <h1>Datasets</h1>
+      <div>
+        <p class="eyebrow">Dados</p>
+        <h1>Datasets</h1>
+      </div>
       <a routerLink="/datasets/importar" class="df-btn df-btn-primary">Importar Dataset</a>
     </div>
 
@@ -61,6 +64,7 @@ import { NotificationService } from '../../../core/services/notification.service
     `
       .cabecalho { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
       .cabecalho h1 { font-size: 26px; font-weight: 700; }
+      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
       .estado { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .erro { background: #fff7f7; border: 1px solid #fecaca; }
       .sem-padding { padding: 0; overflow: hidden; }

@@ -25,3 +25,9 @@ export interface RegisterRequest {
   senha: string;
   papel?: PapelUsuario;
 }
+
+export interface UpdateProfileRequest {
+  nome?: string;
+  email?: string;
+  senha?: string;
+}

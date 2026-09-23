@@ -1,12 +1,12 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder } from '@angular/forms';
 import { Router } from '@angular/router';
-import { DecimalPipe } from '@angular/common';
 import { finalize } from 'rxjs';
 import { DatasetService } from '../../../core/services/dataset.service';
 import { BenchmarkService } from '../../../core/services/benchmark.service';
 import { Dataset, ModeloDeteccao } from '../../../core/models/dataset.model';
 import { BenchmarkConfiguracao } from '../../../core/models/benchmark.model';
+import { StyledSelectComponent, StyledSelectOption } from '../../../shared/components/styled-select/styled-select.component';
 
 interface OpcaoWorkers {
   workers: number;
@@ -18,17 +18,16 @@ interface OpcaoWorkers {
 @Component({
   selector: 'app-benchmark-config',
   standalone: true,
-  imports: [ReactiveFormsModule, DecimalPipe],
+  imports: [ReactiveFormsModule, StyledSelectComponent],
   template: `
-    <h1 class="titulo-pagina">Executar Benchmark</h1>
+    <div class="cabecalho-secao">
+      <p class="eyebrow">Desempenho</p>
+      <h1 class="titulo-pagina">Executar Benchmark</h1>
+    </div>
 
     <div class="df-card cartao">
       <label class="df-label">Dataset Base</label>
-      <select class="df-select" [formControl]="datasetControl">
-        @for (ds of datasets(); track ds.id_dataset) {
-          <option [value]="ds.id_dataset">{{ ds.nome }} ({{ ds.total_registros | number: '1.0-0' : 'pt-BR' }} registros)</option>
-        }
-      </select>
+      <app-styled-select [formControl]="datasetControl" [opcoes]="opcoesDataset" />
 
       <hr class="separador" />
 
@@ -56,6 +55,7 @@ interface OpcaoWorkers {
   styles: [
     `
       .titulo-pagina { font-size: 26px; font-weight: 700; margin-bottom: 24px; }
+      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
       .cartao { max-width: 640px; }
       .separador { border: none; border-top: 1px solid var(--cor-borda); margin: 24px 0; }
       .lista-opcoes { display: flex; flex-direction: column; gap: 12px; }
@@ -72,6 +72,7 @@ export class BenchmarkConfigComponent implements OnInit {
   private router = inject(Router);
 
   datasets = signal<Dataset[]>([]);
+  opcoesDataset: StyledSelectOption[] = [];
   modelos = signal<ModeloDeteccao[]>([]);
   datasetControl = this.fb.nonNullable.control(0);
   carregando = signal(false);
@@ -94,6 +95,7 @@ export class BenchmarkConfigComponent implements OnInit {
     this.datasetService.listar().subscribe({
       next: (lista) => {
         this.datasets.set(lista);
+        this.opcoesDataset = lista.map((ds) => ({ valor: String(ds.id_dataset), rotulo: `${ds.nome} (${ds.total_registros.toLocaleString('pt-BR')} registros)` }));
         if (lista[0]) this.datasetControl.setValue(lista[0].id_dataset);
       },
       error: () => this.erro.set('Não foi possível carregar os datasets.'),

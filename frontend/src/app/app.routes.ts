@@ -91,6 +91,12 @@ export const routes: Routes = [
         title: 'Histórico de Execuções · Detecção de Fraude',
       },
       {
+        path: 'minha-conta',
+        loadComponent: () =>
+          import('./features/account/account.component').then((m) => m.AccountComponent),
+        title: 'Minha Conta · Detecção de Fraude',
+      },
+      {
         path: 'admin/usuarios/novo',
         loadComponent: () =>
           import('./features/admin/create-user/create-user.component').then(

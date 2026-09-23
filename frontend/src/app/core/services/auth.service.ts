@@ -3,7 +3,13 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { LoginRequest, LoginResponse, RegisterRequest, Usuario } from '../models/usuario.model';
+import {
+  LoginRequest,
+  LoginResponse,
+  RegisterRequest,
+  UpdateProfileRequest,
+  Usuario,
+} from '../models/usuario.model';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -29,6 +35,12 @@ export class AuthService {
 
   carregarPerfil() {
     return this.http.get<Usuario>(`${this.baseUrl}/me`, { withCredentials: true }).pipe(tap((u) => this.usuario.set(u)));
+  }
+
+  atualizarPerfil(payload: UpdateProfileRequest) {
+    return this.http
+      .patch<Usuario>(`${this.baseUrl}/me`, payload, { withCredentials: true })
+      .pipe(tap((u) => this.usuario.set(u)));
   }
 
   logout(): void {

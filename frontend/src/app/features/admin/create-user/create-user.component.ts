@@ -6,11 +6,12 @@ import { PapelUsuario } from '../../../core/models/enums';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { emailComDominioValido } from '../../../core/validators/email.validator';
+import { StyledSelectComponent, StyledSelectOption } from '../../../shared/components/styled-select/styled-select.component';
 
 @Component({
   selector: 'app-create-user',
   standalone: true,
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, StyledSelectComponent],
   template: `
     <div class="tela">
       <div class="cartao df-card">
@@ -51,11 +52,7 @@ import { emailComDominioValido } from '../../../core/validators/email.validator'
             }
 
             <label class="df-label campo-espaco" for="papel">Perfil</label>
-            <select id="papel" class="df-input" formControlName="papel">
-              <option [ngValue]="PapelUsuario.ADMIN">Administrador</option>
-              <option [ngValue]="PapelUsuario.ANALISTA">Analista</option>
-              <option [ngValue]="PapelUsuario.VISUALIZADOR">Visualizador</option>
-            </select>
+            <app-styled-select formControlName="papel" [opcoes]="opcoesPapel" />
 
             @if (erro()) {
               <p class="df-erro-msg campo-erro">{{ erro() }}</p>
@@ -256,6 +253,11 @@ export class CreateUserComponent {
   private notifications = inject(NotificationService);
 
   readonly PapelUsuario = PapelUsuario;
+  opcoesPapel: StyledSelectOption[] = [
+    { valor: PapelUsuario.ADMIN, rotulo: 'Administrador' },
+    { valor: PapelUsuario.ANALISTA, rotulo: 'Analista' },
+    { valor: PapelUsuario.VISUALIZADOR, rotulo: 'Visualizador' },
+  ];
   carregando = signal(false);
   erro = signal<string | null>(null);
   sucesso = signal<string | null>(null);

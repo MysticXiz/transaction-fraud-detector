@@ -6,28 +6,22 @@ import { AnalysisService } from '../../core/services/analysis.service';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { ExecucaoAnalise } from '../../core/models/analise.model';
 import { ModoExecucao, StatusExecucao } from '../../core/models/enums';
+import { StyledSelectComponent, StyledSelectOption } from '../../shared/components/styled-select/styled-select.component';
 
 @Component({
   selector: 'app-history',
   standalone: true,
-  imports: [RouterLink, DecimalPipe, ReactiveFormsModule, StatusBadgeComponent],
+  imports: [RouterLink, DecimalPipe, ReactiveFormsModule, StatusBadgeComponent, StyledSelectComponent],
   template: `
-    <h1 class="titulo-pagina">Histórico de Execuções</h1>
+    <div class="cabecalho-secao">
+      <p class="eyebrow">Acompanhamento</p>
+      <h1 class="titulo-pagina">Histórico de Execuções</h1>
+    </div>
 
     <div class="df-card sem-padding">
       <form [formGroup]="filtroForm" class="barra-filtros">
-        <select class="df-select filtro-select" formControlName="status">
-          <option value="TODOS">Todos os Status</option>
-          <option [value]="Status.CONCLUIDA">Concluída</option>
-          <option [value]="Status.EM_ANDAMENTO">A decorrer</option>
-          <option [value]="Status.FALHA">Falha</option>
-          <option [value]="Status.CANCELADA">Cancelada</option>
-        </select>
-        <select class="df-select filtro-select" formControlName="modo">
-          <option value="TODOS">Todos os Modos</option>
-          <option [value]="Modo.SEQUENCIAL">Sequencial</option>
-          <option [value]="Modo.PARALELO">Paralelo</option>
-        </select>
+        <app-styled-select class="filtro-select" formControlName="status" [opcoes]="opcoesStatus" />
+        <app-styled-select class="filtro-select" formControlName="modo" [opcoes]="opcoesModo" />
       </form>
 
       @if (execucoes().length) {
@@ -65,8 +59,9 @@ import { ModoExecucao, StatusExecucao } from '../../core/models/enums';
   styles: [
     `
       .titulo-pagina { font-size: 26px; font-weight: 700; margin-bottom: 24px; }
-      .sem-padding { padding: 0; overflow: hidden; }
-      .barra-filtros { display: flex; gap: 12px; padding: 18px 24px; border-bottom: 1px solid var(--cor-borda); }
+      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
+      .sem-padding { padding: 0; overflow: visible; }
+      .barra-filtros { position: relative; z-index: 2; display: flex; gap: 12px; padding: 18px 24px; border-bottom: 1px solid var(--cor-borda); }
       .filtro-select { width: 180px; }
       .df-table th, .df-table td { padding-left: 24px; padding-right: 24px; }
     `,
@@ -79,6 +74,19 @@ export class HistoryComponent implements OnInit {
   Status = StatusExecucao;
   Modo = ModoExecucao;
   execucoes = signal<ExecucaoAnalise[]>([]);
+
+  opcoesStatus: StyledSelectOption[] = [
+    { valor: 'TODOS', rotulo: 'Todos os Status' },
+    { valor: StatusExecucao.CONCLUIDA, rotulo: 'Concluída' },
+    { valor: StatusExecucao.EM_ANDAMENTO, rotulo: 'A decorrer' },
+    { valor: StatusExecucao.FALHA, rotulo: 'Falha' },
+    { valor: StatusExecucao.CANCELADA, rotulo: 'Cancelada' },
+  ];
+  opcoesModo: StyledSelectOption[] = [
+    { valor: 'TODOS', rotulo: 'Todos os Modos' },
+    { valor: ModoExecucao.SEQUENCIAL, rotulo: 'Sequencial' },
+    { valor: ModoExecucao.PARALELO, rotulo: 'Paralelo' },
+  ];
 
   filtroForm = this.fb.nonNullable.group({
     status: 'TODOS' as StatusExecucao | 'TODOS',

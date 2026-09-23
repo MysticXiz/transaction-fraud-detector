@@ -36,4 +36,26 @@ describe('AuthService', () => {
 
     expect(localStorage.getItem('df_access_token')).toBeNull();
   });
+
+  it('deve atualizar o perfil via PATCH usando cookies e sincronizar o usuário', () => {
+    const usuario = {
+      id_usuario: 1,
+      nome: 'Maria Atualizada',
+      email: 'maria@sistema.com',
+      papel: 'ANALISTA' as never,
+      ativo: true,
+      criado_em: '2026-01-01T00:00:00Z',
+    };
+
+    service.atualizarPerfil({ nome: usuario.nome }).subscribe((resposta) => {
+      expect(resposta).toEqual(usuario);
+      expect(service.usuario()).toEqual(usuario);
+    });
+
+    const req = httpMock.expectOne('http://127.0.0.1:8000/auth/me');
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.withCredentials).toBeTrue();
+    expect(req.request.body).toEqual({ nome: 'Maria Atualizada' });
+    req.flush(usuario);
+  });
 });
