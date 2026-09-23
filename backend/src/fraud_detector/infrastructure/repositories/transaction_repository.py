@@ -3,6 +3,7 @@ from src.fraud_detector.domain.entities.transaction import Transacao
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 
 class RepositorioTransacao:
+    """Traduz operações entre entidades de domínio e modelos SQLAlchemy."""
     def __init__(self, db: Session):
         self.db = db
 
@@ -40,4 +41,5 @@ class RepositorioTransacao:
         return True
 
     def _to_entity(self, model: TransacaoModel) -> Transacao:
+        # A API não deve depender diretamente da representação persistida.
         return Transacao(id_transacao=model.id_transacao, id_dataset=model.id_dataset, indice_origem=model.indice_origem, valor=model.valor, tempo_relativo=model.tempo_relativo, atributos=model.atributos, rotulo_real=model.rotulo_real)

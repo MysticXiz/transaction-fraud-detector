@@ -5,6 +5,7 @@ pwd_context = CryptContext(
     deprecated="auto"
 )
 
+# Somente o hash é persistido; a senha original nunca deve chegar ao modelo ou ao banco.
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 

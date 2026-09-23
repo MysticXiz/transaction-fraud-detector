@@ -5,6 +5,7 @@ from src.fraud_detector.infrastructure.security.password import verify_password
 from src.fraud_detector.api.schemas.user import TokenRespostaSchema, UsuarioLoginSchema
 
 class LoginUsuarioUseCase:
+    """Autentica credenciais e transforma o resultado em token de acesso."""
     def __init__(self, user_repository: RepositorioUsuario):
         self.user_repository = user_repository
 
@@ -12,6 +13,7 @@ class LoginUsuarioUseCase:
         email = str(user_data.email).lower()
         senha = user_data.senha
 
+        # A mesma mensagem para usuário inexistente e senha incorreta evita vazamento de informação.
         user = self.user_repository.get_by_email(email)
         if not user or not verify_password(senha, user.senha_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
