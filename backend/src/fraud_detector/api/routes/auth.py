@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
@@ -11,6 +11,7 @@ from src.fraud_detector.api.dependencies.roles import require_role
 from src.fraud_detector.application.use_cases.register_user import RegistrarUsuarioUseCase
 from src.fraud_detector.application.use_cases.login_user import LoginUsuarioUseCase
 from src.fraud_detector.application.use_cases.update_current_user import AtualizarUsuarioAtualUseCase
+from src.fraud_detector.config.settings import settings
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -24,11 +25,30 @@ async def register(user_data: UsuarioCadastroSchema, db: Session = Depends(get_d
 
 
 @auth_router.post("/login", response_model=TokenRespostaSchema)
-async def login(credentials: UsuarioLoginSchema, db: Session = Depends(get_db)) -> TokenRespostaSchema:
-    """Autentica o usuário sem exigir token prévio."""
+async def login(credentials: UsuarioLoginSchema, db: Session = Depends(get_db), response: Response = None) -> TokenRespostaSchema:
+    """Autentica o usuário e salva o token em cookie HttpOnly para reduzir risco de XSS."""
     repository = RepositorioUsuario(db)
     login_use_case = LoginUsuarioUseCase(repository)
-    return login_use_case.execute(credentials)
+    result = login_use_case.execute(credentials)
+
+    response.set_cookie(
+        key="access_token",
+        value=result.access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=settings.jwt_access_token_expire_minutes * 60,
+        path="/",
+        secure=False,
+    )
+
+    return result
+
+
+@auth_router.post("/logout")
+async def logout(response: Response):
+    """Remove o cookie de acesso para encerrar a sessão."""
+    response.delete_cookie(key="access_token", path="/")
+    return {"message": "Logout realizado com sucesso"}
 
 
 @auth_router.get("/me", response_model=UsuarioRespostaSchema)
