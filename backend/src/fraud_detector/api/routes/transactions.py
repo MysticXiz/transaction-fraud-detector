@@ -13,6 +13,7 @@ transactions_router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
 @transactions_router.post("", response_model=TransacaoRespostaSchema, status_code=status.HTTP_201_CREATED)
 def create_transaction(transaction_data: TransacaoCriacaoSchema, _: UsuarioModel = Depends(get_current_user), repository: RepositorioTransacao = Depends(get_transaction_repository)):
+    """Cria uma transação para qualquer usuário autenticado."""
     return CriarTransacaoUseCase(repository).execute(transaction_data)
 
 @transactions_router.get("", response_model=list[TransacaoRespostaSchema])

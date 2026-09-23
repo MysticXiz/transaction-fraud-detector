@@ -17,6 +17,7 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 @auth_router.post("/register", response_model=UsuarioRespostaSchema, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UsuarioCadastroSchema, db: Session = Depends(get_db), current_user: UsuarioModel = Depends(require_role(PapelUsuario.ADMIN))) -> UsuarioModel:
+    """Permite que administradores criem usuários e retorna somente dados públicos."""
     repository = RepositorioUsuario(db)
     register_use_case = RegistrarUsuarioUseCase(repository)
     return register_use_case.execute(user_data)
@@ -24,6 +25,7 @@ async def register(user_data: UsuarioCadastroSchema, db: Session = Depends(get_d
 
 @auth_router.post("/login", response_model=TokenRespostaSchema)
 async def login(credentials: UsuarioLoginSchema, db: Session = Depends(get_db)) -> TokenRespostaSchema:
+    """Autentica o usuário sem exigir token prévio."""
     repository = RepositorioUsuario(db)
     login_use_case = LoginUsuarioUseCase(repository)
     return login_use_case.execute(credentials)

@@ -4,6 +4,7 @@ from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 
 class RepositorioUsuario:
+    """Encapsula operações de persistência do usuário para os casos de uso."""
     def __init__(self, db: Session):
         self.db = db
 
@@ -11,6 +12,7 @@ class RepositorioUsuario:
         return self.db.query(UsuarioModel).filter(UsuarioModel.email == email).first()
 
     def create(self, user: UsuarioModel) -> UsuarioModel:
+        # refresh recupera campos gerados pelo banco, como id e data de criação.
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)

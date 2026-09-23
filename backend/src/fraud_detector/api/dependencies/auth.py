@@ -12,6 +12,7 @@ security = HTTPBearer()
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    """Valida o bearer token e retorna apenas usuários existentes e ativos."""
     token = credentials.credentials
 
     try:
@@ -24,6 +25,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido ou expirado")
 
+    # A existência do token não basta: a conta pode ter sido removida ou desativada.
     user = db.query(UsuarioModel).filter(UsuarioModel.id_usuario == int(user_id)).first()
 
     if user is None or not user.ativo:

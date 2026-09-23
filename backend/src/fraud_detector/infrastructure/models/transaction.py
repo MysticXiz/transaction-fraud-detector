@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.fraud_detector.infrastructure.database.database import Base
 
 class TransacaoModel(Base):
+    """Mapeamento SQLAlchemy da tabela de transações persistidas."""
     __tablename__ = "transacao"
 
     id_transacao: Mapped[int] = mapped_column(BigInteger, primary_key=True)

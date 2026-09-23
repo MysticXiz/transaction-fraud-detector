@@ -5,6 +5,7 @@ from src.fraud_detector.api.schemas.user import UsuarioCadastroSchema
 from fastapi import HTTPException, status
 
 class RegistrarUsuarioUseCase:
+    """Aplica as regras de cadastro antes de persistir um novo usuário."""
     def __init__(self, repository: RepositorioUsuario):
         self.repository = repository
 
@@ -12,12 +13,14 @@ class RegistrarUsuarioUseCase:
         email = str(user_data.email).lower()
         nome = user_data.nome.strip()
         senha = user_data.senha
+        papel = user_data.papel or PapelUsuario.ANALISTA
 
-        existing_user = self.repository.get_by_email(user_data.email)
+        # O e-mail normalizado evita duplicidade causada por diferenças de caixa.
+        existing_user = self.repository.get_by_email(email)
         if existing_user is not None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email já registrado")
 
-        new_user = UsuarioModel(nome=nome, email=email, senha_hash=hash_password(senha), papel=PapelUsuario.ANALISTA, ativo=True)
+        new_user = UsuarioModel(nome=nome, email=email, senha_hash=hash_password(senha), papel=papel, ativo=True)
 
         return self.repository.create(new_user)
     

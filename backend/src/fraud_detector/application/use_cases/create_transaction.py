@@ -4,6 +4,7 @@ from src.fraud_detector.infrastructure.repositories.transaction_repository impor
 from sqlalchemy.exc import IntegrityError
 
 class CriarTransacaoUseCase:
+    """Converte o DTO de entrada em entidade e trata conflitos de unicidade."""
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
@@ -12,6 +13,7 @@ class CriarTransacaoUseCase:
         try:
             return self.transaction_repository.create(transaction)
         except IntegrityError as error:
+            # A sessão precisa ser revertida antes de qualquer operação posterior.
             self.transaction_repository.db.rollback()
             if "uk_transacao_origem" in str(error.orig):
                 raise ValueError("Já existe uma transação com este índice de origem neste dataset")

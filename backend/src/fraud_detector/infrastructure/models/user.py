@@ -9,6 +9,7 @@ from src.fraud_detector.domain.enums.user_roles import PapelUsuario
 
 
 class UsuarioModel(Base):
+    """Mapeamento SQLAlchemy do usuário, incluindo apenas o hash da senha."""
     __tablename__ = "usuario"
 
     id_usuario: Mapped[int] = mapped_column( Integer, primary_key=True, )

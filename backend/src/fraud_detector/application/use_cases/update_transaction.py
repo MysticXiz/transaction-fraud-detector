@@ -2,10 +2,12 @@ from src.fraud_detector.api.schemas.transaction import TransacaoAtualizacaoSchem
 from src.fraud_detector.infrastructure.repositories.transaction_repository import RepositorioTransacao
 
 class AtualizarTransacaoUseCase:
+    """Atualiza somente os campos enviados pelo cliente."""
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
     def execute(self, id_transacao: int, transaction_data: TransacaoAtualizacaoSchema):
+        # exclude_unset diferencia campo omitido de campo enviado explicitamente como nulo.
         updates = transaction_data.model_dump(exclude_unset=True)
         if not updates:
             raise ValueError("Nenhum campo foi informado para atualização")

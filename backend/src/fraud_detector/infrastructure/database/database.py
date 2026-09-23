@@ -2,7 +2,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy import create_engine, text
 from src.fraud_detector.config.settings import settings
 
-
+# O engine e a fábrica de sessões são compartilhados pela aplicação inteira.
 engine = create_engine(
     settings.database_url,
 )
@@ -19,6 +19,7 @@ class Base(DeclarativeBase):
 
 
 def get_db():
+    """Fornece uma sessão por requisição e garante seu fechamento ao final."""
     db = SessionLocal()
 
     try:
@@ -27,5 +28,6 @@ def get_db():
         db.close()
 
 def test_connection():
+    """Executa uma consulta mínima para verificar a conectividade com o banco."""
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
