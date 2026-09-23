@@ -22,7 +22,7 @@ describe('AuthService', () => {
     localStorage.clear();
   });
 
-  it('deve autenticar e salvar o token após login', () => {
+  it('deve autenticar sem persistir token em localStorage e enviar cookies', () => {
     const payload = { email: 'admin@sistema.com', senha: '12345678' };
 
     service.login(payload).subscribe((response) => {
@@ -31,8 +31,9 @@ describe('AuthService', () => {
 
     const req = httpMock.expectOne('http://127.0.0.1:8000/auth/login');
     expect(req.request.method).toBe('POST');
+    expect(req.request.withCredentials).toBeTrue();
     req.flush({ access_token: 'token-123', token_type: 'bearer' });
 
-    expect(localStorage.getItem('df_access_token')).toBe('token-123');
+    expect(localStorage.getItem('df_access_token')).toBeNull();
   });
 });

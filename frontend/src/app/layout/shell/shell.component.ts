@@ -180,7 +180,7 @@ export class ShellComponent implements OnInit {
 
   ngOnInit(): void {
     // Recarrega o perfil ao atualizar a página (GET /auth/me), pois o signal `usuario` é volátil.
-    if (this.auth.token() && !this.auth.usuario()) {
+    if (!this.auth.usuario()) {
       this.auth.carregarPerfil().subscribe();
     }
   }

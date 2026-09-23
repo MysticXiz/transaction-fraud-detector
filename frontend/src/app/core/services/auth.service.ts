@@ -5,8 +5,6 @@ import { tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { LoginRequest, LoginResponse, RegisterRequest, Usuario } from '../models/usuario.model';
 
-const TOKEN_KEY = 'df_access_token';
-
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private http = inject(HttpClient);
@@ -15,30 +13,26 @@ export class AuthService {
 
   /** Usuário autenticado, carregado via GET /auth/me após login/refresh de página. */
   usuario = signal<Usuario | null>(null);
-  estaAutenticado = computed(() => !!this.token());
+  estaAutenticado = computed(() => !!this.usuario());
 
   token(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+    return null;
   }
 
   login(payload: LoginRequest) {
-    return this.http.post<LoginResponse>(`${this.baseUrl}/login`, payload).pipe(
-      tap((resp) => {
-        localStorage.setItem(TOKEN_KEY, resp.access_token);
-      })
-    );
+    return this.http.post<LoginResponse>(`${this.baseUrl}/login`, payload, { withCredentials: true }).pipe();
   }
 
   registrar(payload: RegisterRequest) {
-    return this.http.post<Usuario>(`${this.baseUrl}/register`, payload);
+    return this.http.post<Usuario>(`${this.baseUrl}/register`, payload, { withCredentials: true });
   }
 
   carregarPerfil() {
-    return this.http.get<Usuario>(`${this.baseUrl}/me`).pipe(tap((u) => this.usuario.set(u)));
+    return this.http.get<Usuario>(`${this.baseUrl}/me`, { withCredentials: true }).pipe(tap((u) => this.usuario.set(u)));
   }
 
   logout(): void {
-    localStorage.removeItem(TOKEN_KEY);
+    this.http.post(`${this.baseUrl}/logout`, {}, { withCredentials: true }).subscribe();
     this.usuario.set(null);
     this.router.navigateByUrl('/login');
   }

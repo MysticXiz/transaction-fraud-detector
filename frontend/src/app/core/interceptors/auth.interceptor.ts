@@ -5,15 +5,13 @@ import { catchError, throwError } from 'rxjs';
 import { AuthService } from '../services/auth.service';
 
 /**
- * Anexa o Bearer token (JWT) do RNF de Segurança da Sprint 01/02 em toda requisição,
- * e redireciona para o login em caso de 401 (token expirado/ausente).
+ * Envia cookies HttpOnly em todas as requisições e redireciona para login em caso de 401.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
-  const token = auth.token();
 
-  const clonado = token ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : req;
+  const clonado = req.clone({ withCredentials: true });
 
   return next(clonado).pipe(
     catchError((err: HttpErrorResponse) => {
