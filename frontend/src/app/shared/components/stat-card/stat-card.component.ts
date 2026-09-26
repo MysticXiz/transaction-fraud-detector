@@ -13,19 +13,19 @@ import { Component, Input } from '@angular/core';
     `
       .card {
         background: var(--cor-superficie);
-        border-radius: 10px;
-        box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+        border: 1px solid var(--cor-borda);
+        border-radius: var(--raio);
         padding: 20px 24px;
       }
       .rotulo {
         font-size: 13px;
-        color: #6b7280;
+        color: var(--cor-texto-suave);
         margin-bottom: 6px;
       }
       .valor {
         font-size: 26px;
         font-weight: 700;
-        color: var(--df-card color);
+        color: var(--cor-texto);
       }
     `,
   ],

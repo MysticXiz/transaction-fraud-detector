@@ -16,8 +16,11 @@ import { StatusExecucao } from '../../../core/models/enums';
           <div class="barra-preenchida" [style.width.%]="progresso()"></div>
         </div>
         @if (erro()) {
-          <p class="df-erro-msg" style="margin-top:16px">{{ erro() }}</p>
-          <button class="df-btn df-btn-secundario" style="margin-top:16px" (click)="voltar()">
+          <div class="df-alerta df-alerta-erro" style="margin-top:16px" role="alert">
+            <span>{{ erro() }}</span>
+            <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erro.set(null)">×</button>
+          </div>
+          <button class="df-btn df-btn-secundario" style="margin-top:4px" (click)="voltar()">
             Voltar para Configuração
           </button>
         }

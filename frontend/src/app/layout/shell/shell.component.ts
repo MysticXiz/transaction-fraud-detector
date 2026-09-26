@@ -140,7 +140,7 @@ import { ThemeService } from '../../core/services/theme.service';
       }
       .admin-area {
         margin-top: auto;
-        padding: 12px 24px;
+        padding: 18px 24px;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
       }
       .admin-btn {
@@ -168,11 +168,11 @@ import { ThemeService } from '../../core/services/theme.service';
         opacity: 0.95;
       }
       .rodape {
-        padding: 16px 24px 0;
+        padding: 18px 24px 0;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
       }
       .tema-area {
-        padding: 12px 24px;
+        padding: 18px 24px;
         border-top: 1px solid rgba(255, 255, 255, 0.08);
       }
       .tema-btn {
@@ -223,8 +223,14 @@ import { ThemeService } from '../../core/services/theme.service';
       .sair:hover { background: #dc2626; border-color: #ef4444; color: #fff; }
       .conteudo {
         flex: 1;
-        padding: 32px 40px;
+        padding: 40px 40px 32px;
         overflow-x: auto;
+      }
+      @media (max-width: 900px) {
+        .conteudo { padding: 36px 28px 28px; }
+      }
+      @media (max-width: 640px) {
+        .conteudo { padding: 28px 16px 24px; }
       }
     `,
   ],

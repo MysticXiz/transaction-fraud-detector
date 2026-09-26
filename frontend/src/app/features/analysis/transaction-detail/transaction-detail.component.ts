@@ -8,10 +8,13 @@ import { AnalysisService, DetalheTransacaoResponse } from '../../../core/service
   standalone: true,
   imports: [RouterLink, DecimalPipe],
   template: `
-    <div class="cabecalho">
-      <a [routerLink]="['/analises', idExecucao, 'resultados']" class="voltar">← Voltar aos Resultados</a>
-      <h1>Transação #{{ idTransacao }}</h1>
-    </div>
+    <header class="page-header page-header--compact">
+      <div class="page-header__copy">
+        <a [routerLink]="['/analises', idExecucao, 'resultados']" class="page-backlink">← Voltar aos resultados</a>
+        <p class="page-eyebrow">Detalhe da análise</p>
+        <h1 class="page-title">Transação #{{ idTransacao }}</h1>
+      </div>
+    </header>
 
     @if (detalhe(); as d) {
       <div class="grid-topo">
@@ -85,9 +88,6 @@ import { AnalysisService, DetalheTransacaoResponse } from '../../../core/service
   `,
   styles: [
     `
-      .cabecalho { margin-bottom: 20px; }
-      .voltar { font-size: 13.5px; color: var(--cor-texto-suave); display: inline-block; margin-bottom: 8px; }
-      .cabecalho h1 { font-size: 22px; font-weight: 700; }
       .grid-topo { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
       .titulo-secao { font-size: 15px; font-weight: 700; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--cor-borda); }
       .atributos { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

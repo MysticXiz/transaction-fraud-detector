@@ -10,14 +10,24 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
   standalone: true,
   imports: [RouterLink, DecimalPipe, ReactiveFormsModule],
   template: `
-    <div class="cabecalho">
-      <h1>Execução #{{ idExecucao }}</h1>
+    <header class="page-header">
+      <div class="page-header__copy">
+        <p class="page-eyebrow">Resultados da análise</p>
+        <h1 class="page-title">Execução #{{ idExecucao }}</h1>
       @if (execucao(); as ex) {
-        <p class="subtitulo">
+        <p class="page-subtitle">
           {{ ex.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo · ' + ex.num_workers + ' workers' }}
         </p>
       }
-    </div>
+      </div>
+    </header>
+
+    @if (erro()) {
+      <div class="df-alerta df-alerta-erro" role="alert">
+        <span>{{ erro() }}</span>
+        <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erro.set(null)">×</button>
+      </div>
+    }
 
     <div class="grid-resumo">
       <div class="df-card mini"><p class="rotulo">Analisadas</p><p class="valor">{{ execucao()?.total_analisadas | number: '1.0-0' : 'pt-BR' }}</p></div>
@@ -62,7 +72,11 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
           </tbody>
         </table>
       } @else {
-        <p class="df-vazio">Nenhuma transação suspeita para os filtros aplicados.</p>
+        <div class="df-estado sem-borda">
+          <span class="df-estado-icone" aria-hidden="true">▤</span>
+          <h2>Nenhuma transação suspeita</h2>
+          <p>Nenhum resultado corresponde aos filtros de escore e valor aplicados.</p>
+        </div>
       }
 
       <div class="rodape-tabela">
@@ -73,9 +87,6 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
   `,
   styles: [
     `
-      .cabecalho { margin-bottom: 20px; }
-      .cabecalho h1 { font-size: 24px; font-weight: 700; }
-      .subtitulo { color: var(--cor-texto-suave); font-size: 13.5px; margin-top: 4px; }
       .grid-resumo { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 20px; }
       .mini { padding: 16px 18px; }
       .mini .rotulo { font-size: 12.5px; color: var(--cor-texto-suave); margin-bottom: 4px; }
@@ -87,6 +98,7 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
       .filtro-input { width: 100px; }
       .df-table th, .df-table td { padding-left: 24px; padding-right: 24px; }
       .rodape-tabela { display: flex; gap: 10px; padding: 18px 24px; }
+      .sem-borda { border: 0; border-radius: 0; padding: 48px 20px; }
       @media (max-width: 900px) { .grid-resumo { grid-template-columns: repeat(2, 1fr); } }
     `,
   ],
@@ -100,6 +112,7 @@ export class AnalysisResultsComponent implements OnInit {
   execucao = signal<ExecucaoAnalise | null>(null);
   metrica = signal<MetricaExecucao | null>(null);
   resultados = signal<ResultadoDeteccao[]>([]);
+  erro = signal<string | null>(null);
 
   filtroForm = this.fb.nonNullable.group({
     escoreMinimo: [null as number | null],
@@ -129,10 +142,12 @@ export class AnalysisResultsComponent implements OnInit {
           this.execucao.set(pagina.execucao);
           this.metrica.set(pagina.metrica);
           this.resultados.set(pagina.itens);
+          this.erro.set(null);
         },
         error: () => {
           this.execucao.set(null);
           this.resultados.set([]);
+          this.erro.set('Não foi possível carregar os resultados desta execução.');
         },
       });
   }

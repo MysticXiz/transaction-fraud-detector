@@ -15,12 +15,12 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
   template: `
     <div class="tela">
       <div class="cartao df-card">
-        <div class="cabecalho">
-          <div>
-            <p class="eyebrow">Administração</p>
-            <h1 class="titulo">Criar Usuário</h1>
+        <header class="page-header page-header--compact">
+          <div class="page-header__copy">
+            <p class="page-eyebrow">Administração</p>
+            <h1 class="page-title">Criar usuário</h1>
           </div>
-        </div>
+        </header>
 
         @if (etapa() === 'formulario') {
           <form class="etapa" [formGroup]="form" (ngSubmit)="continuar()">
@@ -55,14 +55,17 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
             <app-styled-select formControlName="papel" [opcoes]="opcoesPapel" />
 
             @if (erro()) {
-              <p class="df-erro-msg campo-erro">{{ erro() }}</p>
+              <div class="df-alerta df-alerta-erro campo-erro" role="alert">
+                <span>{{ erro() }}</span>
+                <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erro.set(null)">×</button>
+              </div>
             }
 
             @if (sucesso()) {
-                <div class="container-sucesso-msg">
-                    <p class="df-sucesso-msg campo-erro">{{ sucesso() }}</p>
-                </div>
-              
+              <div class="df-alerta df-alerta-sucesso campo-erro" role="status">
+                <span>{{ sucesso() }}</span>
+                <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="sucesso.set(null)">×</button>
+              </div>
             }
 
             <div class="acoes">
@@ -94,7 +97,10 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
             </dl>
 
             @if (erro()) {
-              <p class="df-erro-msg campo-erro">{{ erro() }}</p>
+              <div class="df-alerta df-alerta-erro campo-erro" role="alert">
+                <span>{{ erro() }}</span>
+                <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erro.set(null)">×</button>
+              </div>
             }
 
             <div class="acoes">
@@ -118,35 +124,6 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
       }
       .cartao {
         width: min(100%, 560px);
-      }
-      .container-sucesso-msg{
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: var(--cor-sucesso-bg);
-        padding: 10px 20px;
-        margin-top: 10px;
-        border-radius: 4px;
-      }
-      .container-sucesso-msg p{
-        color: var(--cor-sucesso-texto);
-        margin: 0;
-      }
-      .cabecalho {
-        margin-bottom: 20px;
-      }
-      .eyebrow {
-        margin: 0 0 6px;
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: #7dd3fc;
-        font-weight: 700;
-      }
-      .titulo {
-        font-size: 26px;
-        font-weight: 700;
-        margin: 0;
       }
       .campo-espaco {
         margin-top: 16px;

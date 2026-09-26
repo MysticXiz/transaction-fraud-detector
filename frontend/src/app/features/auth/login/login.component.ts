@@ -38,11 +38,18 @@ import { emailComDominioValido } from '../../../core/validators/email.validator'
           }
 
           @if (erro()) {
-            <p class="df-erro-msg campo-erro">{{ erro() }}</p>
+            <div class="df-alerta df-alerta-erro campo-erro" role="alert">
+              <span>{{ erro() }}</span>
+              <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erro.set(null)">×</button>
+            </div>
           }
 
           <button class="df-btn df-btn-primary botao" type="submit" [disabled]="form.invalid || carregando()">
-            {{ carregando() ? 'Entrando…' : 'Acessar' }}
+            @if (carregando()) {
+              <span class="df-spinner" aria-hidden="true"></span> Entrando…
+            } @else {
+              Acessar
+            }
           </button>
         </form>
       </div>

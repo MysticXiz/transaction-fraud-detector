@@ -20,43 +20,53 @@ interface OpcaoWorkers {
   standalone: true,
   imports: [ReactiveFormsModule, StyledSelectComponent],
   template: `
-    <div class="cabecalho-secao">
-      <p class="eyebrow">Desempenho</p>
-      <h1 class="titulo-pagina">Executar Benchmark</h1>
-    </div>
+    <div class="df-pagina-estreita">
+      <header class="page-header">
+        <div class="page-header__copy">
+          <p class="page-eyebrow">Desempenho</p>
+          <h1 class="page-title">Executar Benchmark</h1>
+          <p class="page-subtitle">Compare o tempo de execução entre diferentes configurações de paralelismo.</p>
+        </div>
+      </header>
 
-    <div class="df-card cartao">
-      <label class="df-label">Dataset Base</label>
-      <app-styled-select [formControl]="datasetControl" [opcoes]="opcoesDataset" />
+      <div class="df-card cartao">
+        <label class="df-label">Dataset Base</label>
+        <app-styled-select [formControl]="datasetControl" [opcoes]="opcoesDataset" />
 
-      <hr class="separador" />
+        <hr class="separador" />
 
-      <label class="df-label">Configurações a comparar</label>
-      <div class="lista-opcoes">
-        @for (op of opcoes(); track op.workers) {
-          <label class="opcao" [class.desabilitada]="op.fixo">
-            <input type="checkbox" [checked]="op.selecionado" [disabled]="op.fixo" (change)="alternar(op)" />
-            {{ op.rotulo }}
-          </label>
+        <label class="df-label">Configurações a comparar</label>
+        <div class="lista-opcoes">
+          @for (op of opcoes(); track op.workers) {
+            <label class="opcao" [class.desabilitada]="op.fixo">
+              <input type="checkbox" [checked]="op.selecionado" [disabled]="op.fixo" (change)="alternar(op)" />
+              {{ op.rotulo }}
+            </label>
+          }
+        </div>
+
+        @if (erro()) {
+          <div class="df-alerta df-alerta-erro" style="margin-top:16px" role="alert">
+            <span>{{ erro() }}</span>
+            <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erro.set(null)">×</button>
+          </div>
         }
-      </div>
 
-      @if (erro()) {
-        <p class="df-erro-msg" style="margin-top:16px">{{ erro() }}</p>
-      }
-
-      <div class="acoes">
-        <button class="df-btn df-btn-roxo" (click)="executarBateria()" [disabled]="carregando()">
-          {{ carregando() ? 'Executando bateria…' : 'Executar Bateria Completa' }}
-        </button>
+        <div class="acoes">
+          <button class="df-btn df-btn-roxo" (click)="executarBateria()" [disabled]="carregando()">
+            @if (carregando()) {
+              <span class="df-spinner" aria-hidden="true"></span> Executando bateria…
+            } @else {
+              Executar Bateria Completa
+            }
+          </button>
+        </div>
       </div>
     </div>
   `,
   styles: [
     `
-      .titulo-pagina { font-size: 26px; font-weight: 700; margin-bottom: 24px; }
-      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
-      .cartao { max-width: 640px; }
+      .cartao { width: 100%; }
       .separador { border: none; border-top: 1px solid var(--cor-borda); margin: 24px 0; }
       .lista-opcoes { display: flex; flex-direction: column; gap: 12px; }
       .opcao { display: flex; align-items: center; gap: 10px; font-size: 14px; }

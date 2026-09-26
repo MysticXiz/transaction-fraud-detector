@@ -1,19 +1,20 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { environment } from '../../../environments/environment';
-import { Dataset, DatasetImportPayload, ModeloDeteccao } from '../models/dataset.model';
+import { Dataset, DatasetDetalhe, DatasetImportPayload, ModeloDeteccao } from '../models/dataset.model';
 
 @Injectable({ providedIn: 'root' })
 export class DatasetService {
   private http = inject(HttpClient);
   private baseUrl = `${environment.apiUrl}/datasets`;
 
-  listar() {
-    return this.http.get<Dataset[]>(this.baseUrl);
+  listar(offset = 0, limit = 50) {
+    const params = new HttpParams().set('offset', offset).set('limit', limit);
+    return this.http.get<Dataset[]>(this.baseUrl, { params });
   }
 
   obter(idDataset: number) {
-    return this.http.get<Dataset>(`${this.baseUrl}/${idDataset}`);
+    return this.http.get<DatasetDetalhe>(`${this.baseUrl}/${idDataset}`);
   }
 
   importar(payload: DatasetImportPayload) {

@@ -23,11 +23,13 @@ const senhasIguais: ValidatorFn = (control: AbstractControl): ValidationErrors |
   imports: [ReactiveFormsModule],
   template: `
     <div class="tela">
-      <section class="cabecalho-secao">
-        <p class="eyebrow">Segurança da conta</p>
-        <h1>Minha conta</h1>
-        <p class="descricao">Atualize seus dados de acesso e mantenha seu perfil em dia.</p>
-      </section>
+      <header class="page-header">
+        <div class="page-header__copy">
+          <p class="page-eyebrow">Segurança da conta</p>
+          <h1 class="page-title">Minha conta</h1>
+          <p class="page-subtitle">Atualize seus dados de acesso e mantenha seu perfil em dia.</p>
+        </div>
+      </header>
 
       <div class="grade">
         <section class="cartao df-card">
@@ -77,10 +79,16 @@ const senhasIguais: ValidatorFn = (control: AbstractControl): ValidationErrors |
             }
 
             @if (erro()) {
-              <p class="df-erro-msg mensagem">{{ erro() }}</p>
+              <div class="df-alerta df-alerta-erro mensagem" role="alert">
+                <span>{{ erro() }}</span>
+                <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erro.set(null)">×</button>
+              </div>
             }
             @if (sucesso()) {
-              <p class="df-sucesso-msg mensagem">{{ sucesso() }}</p>
+              <div class="df-alerta df-alerta-sucesso mensagem" role="status">
+                <span>{{ sucesso() }}</span>
+                <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="sucesso.set(null)">×</button>
+              </div>
             }
 
             <div class="acoes">
@@ -107,10 +115,6 @@ const senhasIguais: ValidatorFn = (control: AbstractControl): ValidationErrors |
   styles: [
     `
       .tela { max-width: 980px; margin: 0 auto; }
-      .cabecalho-secao { margin-bottom: 24px; }
-      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
-      h1 { font-size: 30px; line-height: 1.15; }
-      .descricao { color: var(--cor-texto-suave); margin-top: 8px; }
       .grade { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(230px, .8fr); gap: 20px; align-items: start; }
       .cabecalho-cartao { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 22px; }
       h2 { font-size: 18px; }
@@ -122,8 +126,7 @@ const senhasIguais: ValidatorFn = (control: AbstractControl): ValidationErrors |
       .validacao-erro { color: var(--cor-erro-texto); }
       .divisor { border-top: 1px solid var(--cor-borda); margin: 28px 0 22px; }
       .subcabecalho h2 { font-size: 16px; }
-      .mensagem { margin-top: 18px; }
-      .df-sucesso-msg { background: var(--cor-sucesso-bg); color: var(--cor-sucesso-texto); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+      .mensagem { margin-top: 18px; margin-bottom: 0; }
       .acoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
       .resumo { padding: 22px; }
       .resumo dl { display: grid; gap: 15px; margin: 22px 0; }

@@ -7,9 +7,21 @@ export interface Dataset {
   hash_arquivo: string;
   total_registros: number;
   total_colunas: number;
-  origem: string;
+  origem: string | null;
   possui_rotulo: boolean;
   importado_em: string;
+}
+
+export interface DatasetTransacaoAmostra {
+  indice_origem: number;
+  valor: number | null;
+  tempo_relativo: number | null;
+  atributos: Record<string, number>;
+  rotulo_real: boolean | null;
+}
+
+export interface DatasetDetalhe extends Dataset {
+  amostra: DatasetTransacaoAmostra[];
 }
 
 export interface DatasetImportPayload {

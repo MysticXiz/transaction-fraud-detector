@@ -13,84 +13,92 @@ import { StatusExecucao } from '../../core/models/enums';
   standalone: true,
   imports: [RouterLink, StatCardComponent, StatusBadgeComponent],
   template: `
-    <div class="cabecalho">
-      <div>
-        <p class="eyebrow">Visão operacional</p>
-        <h1>Visão Geral</h1>
-      </div>
-      <div class="acoes">
-        <a routerLink="/datasets/importar" class="df-btn df-btn-secundario">Importar Dataset</a>
-        <a routerLink="/analises/nova" class="df-btn df-btn-primary">Nova Análise</a>
-      </div>
-    </div>
+    <div class="df-pagina">
+      <header class="page-header">
+        <div class="page-header__copy">
+          <p class="page-eyebrow">Visão operacional</p>
+          <h1 class="page-title">Visão Geral</h1>
+        </div>
+        <div class="page-header__actions">
+          <a routerLink="/datasets/importar" class="df-btn df-btn-secundario">Importar Dataset</a>
+          <a routerLink="/analises/nova" class="df-btn df-btn-primary">Nova Análise</a>
+        </div>
+      </header>
 
-    <div class="grid-cards">
-      <app-stat-card rotulo="Datasets" [valor]="totalDatasets()" />
-      <app-stat-card rotulo="Análises" [valor]="totalAnalises()" />
-      <app-stat-card rotulo="Suspeitas" [valor]="totalSuspeitas()" />
-      <a routerLink="/benchmark" class="card-speedup">
-        <app-stat-card rotulo="Speedup (ver Benchmark)" [valor]="melhorSpeedupTexto()" />
-      </a>
-    </div>
-
-    <div class="grid-inferior">
-      <div class="df-card">
-        <h2 class="titulo-secao">Últimas Execuções por Tempo (s)</h2>
-        @if (execucoesGrafico().length) {
-          <svg [attr.viewBox]="'0 0 ' + larguraSvg() + ' 220'" class="grafico">
-            @for (item of execucoesGrafico(); track item.id_execucao; let i = $index) {
-              <rect
-                [attr.x]="i * 76 + 16"
-                [attr.y]="200 - alturaBarra(item.tempo_total_s)"
-                width="44"
-                [attr.height]="alturaBarra(item.tempo_total_s)"
-                [attr.fill]="i === execucoesGrafico().length - 1 ? '#2563eb' : '#93c5fd'"
-                rx="3"
-              />
-              <text [attr.x]="i * 76 + 38" y="216" text-anchor="middle" font-size="12" fill="#6b7280">
-                #{{ item.id_execucao }}
-              </text>
-            }
-          </svg>
-        } @else {
-          <p class="df-vazio">Nenhuma execução registrada ainda.</p>
-        }
+      <div class="grid-cards">
+        <app-stat-card rotulo="Datasets" [valor]="totalDatasets()" />
+        <app-stat-card rotulo="Análises" [valor]="totalAnalises()" />
+        <app-stat-card rotulo="Suspeitas" [valor]="totalSuspeitas()" />
+        <a routerLink="/benchmark" class="card-speedup">
+          <app-stat-card rotulo="Speedup (ver Benchmark)" [valor]="melhorSpeedupTexto()" />
+        </a>
       </div>
 
-      <div class="df-card">
-        <h2 class="titulo-secao">Execuções Recentes</h2>
-        @if (execucoesRecentes().length) {
-          <ul class="lista-execucoes">
-            @for (exec of execucoesRecentes(); track exec.id_execucao) {
-              <li>
-                <a [routerLink]="['/analises', exec.id_execucao, 'resultados']">
-                  #{{ exec.id_execucao }} - {{ exec.dataset_nome ?? 'dataset' }}
-                </a>
-                <app-status-badge [status]="exec.status" />
-              </li>
-            }
-          </ul>
-        } @else {
-          <p class="df-vazio">Nenhuma análise executada.</p>
-        }
+      <div class="grid-inferior">
+        <div class="df-card">
+          <h2 class="titulo-secao">Últimas Execuções por Tempo (s)</h2>
+          @if (execucoesGrafico().length) {
+            <svg [attr.viewBox]="'0 0 ' + larguraSvg() + ' 220'" class="grafico">
+              @for (item of execucoesGrafico(); track item.id_execucao; let i = $index) {
+                <rect
+                  [attr.x]="i * 76 + 16"
+                  [attr.y]="200 - alturaBarra(item.tempo_total_s)"
+                  width="44"
+                  [attr.height]="alturaBarra(item.tempo_total_s)"
+                  [attr.fill]="i === execucoesGrafico().length - 1 ? '#2563eb' : '#93c5fd'"
+                  rx="3"
+                />
+                <text [attr.x]="i * 76 + 38" y="216" text-anchor="middle" font-size="12" fill="#6b7280">
+                  #{{ item.id_execucao }}
+                </text>
+              }
+            </svg>
+          } @else {
+            <div class="df-estado sem-borda">
+              <span class="df-estado-icone" aria-hidden="true">▤</span>
+              <h2>Nenhuma execução registrada</h2>
+              <p>Execute uma análise para ver o histórico de tempos aqui.</p>
+            </div>
+          }
+        </div>
+
+        <div class="df-card">
+          <h2 class="titulo-secao">Execuções Recentes</h2>
+          @if (execucoesRecentes().length) {
+            <ul class="lista-execucoes">
+              @for (exec of execucoesRecentes(); track exec.id_execucao) {
+                <li>
+                  <a [routerLink]="['/analises', exec.id_execucao, 'resultados']">
+                    #{{ exec.id_execucao }} - {{ exec.dataset_nome ?? 'dataset' }}
+                  </a>
+                  <app-status-badge [status]="exec.status" />
+                </li>
+              }
+            </ul>
+          } @else {
+            <div class="df-estado sem-borda">
+              <span class="df-estado-icone" aria-hidden="true">▤</span>
+              <h2>Nenhuma análise executada</h2>
+              <p>Suas execuções mais recentes vão aparecer aqui.</p>
+            </div>
+          }
+        </div>
       </div>
     </div>
   `,
   styles: [
     `
-      .cabecalho { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-      .cabecalho h1 { font-size: 26px; font-weight: 700; }
-      .eyebrow { color: var(--cor-primaria); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 7px; }
-      .acoes { display: flex; gap: 10px; }
       .grid-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
       .grid-inferior { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
       .card-speedup { display: block; }
       .titulo-secao { font-size: 16px; font-weight: 700; margin-bottom: 18px; }
       .grafico { width: 100%; height: 220px; }
       .lista-execucoes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-      .lista-execucoes li { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; }
+      .lista-execucoes li { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; padding-bottom: 14px; border-bottom: 1px solid var(--cor-borda); }
+      .lista-execucoes li:last-child { padding-bottom: 0; border-bottom: 0; }
       .lista-execucoes a { color: var(--cor-texto); font-weight: 500; }
       .lista-execucoes a:hover { color: var(--cor-primaria); }
+      .sem-borda { border: 0; border-radius: 0; padding: 32px 12px; }
       @media (max-width: 900px) {
         .grid-cards { grid-template-columns: repeat(2, 1fr); }
         .grid-inferior { grid-template-columns: 1fr; }
