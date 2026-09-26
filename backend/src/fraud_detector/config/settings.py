@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     database_url: str
+    dataset_storage_path: Path = BASE_DIR / "storage" / "datasets"
+    max_dataset_upload_bytes: int = 200 * 1024 * 1024
+    dataset_upload_chunk_bytes: int = 1024 * 1024
+    ingestion_copy_buffer_bytes: int = 1024 * 1024
+    ingestion_progress_every_rows: int = 50_000
 
     model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8")
 
