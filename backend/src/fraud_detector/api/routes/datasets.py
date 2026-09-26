@@ -111,7 +111,7 @@ def delete_dataset(
     repository: RepositorioDataset = Depends(get_dataset_repository),
 ):
     try:
-        GerenciarDatasetsUseCase(repository, settings.dataset_storage_path).delete(
+        GerenciarDatasetsUseCase(repository, settings.dataset_storage_path).delete_dataset(
             dataset_id, current_user.id_usuario
         )
     except LookupError as error:
