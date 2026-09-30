@@ -1,6 +1,7 @@
 __pycache__/
 .mypy_cache/
 .vscode/
+.env
 .idea/
 *.log
 ANALISE_PROXIMOS_PASSOS.md
