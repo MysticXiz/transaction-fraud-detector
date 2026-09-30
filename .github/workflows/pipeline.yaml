@@ -32,4 +32,6 @@ jobs:
       - name: Executar testes com Pytest
         env:
           PYTHONPATH: backend
+          JWT_SECRET_KEY: "chave-ficticia-para-testes-ci"
+          DATABASE_URL: "sqlite:///./test.db"
         run: pytest tests/

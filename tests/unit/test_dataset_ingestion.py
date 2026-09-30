@@ -99,8 +99,7 @@ class DatasetCsvReaderTests(unittest.TestCase):
     def test_copy_text_keeps_json_and_null_label(self):
         parser = DatasetCsvReader(b"Time,V1,Amount\n1.5,0.25,12.34\n")
         line = next(parser.iter_copy_text(42))
-        self.assertEqual(
-            line, b'42\t0\t12.34\t1.5\t{"V1":0.25}\t\\N\n')
+        self.assertEqual(line, b'42\t0\t12.34\t1.5\t{"V1":0.25}\t\\N\n')
         self.assertIn(b"\\N", line)
 
 
