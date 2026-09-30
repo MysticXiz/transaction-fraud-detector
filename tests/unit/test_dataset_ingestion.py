@@ -18,7 +18,6 @@ from src.fraud_detector.computational.ingestion.dataset_csv import (
     DatasetCsvError,
     DatasetCsvReader,
     DatasetTooLargeError,
-    _format_copy_line,
     stream_upload_to_file,
 )
 from src.fraud_detector.infrastructure.models.dataset import DatasetModel
@@ -101,8 +100,7 @@ class DatasetCsvReaderTests(unittest.TestCase):
         parser = DatasetCsvReader(b"Time,V1,Amount\n1.5,0.25,12.34\n")
         line = next(parser.iter_copy_text(42))
         self.assertEqual(
-            line, _format_copy_line(42, 0, "12.34", "1.5", '{"V1":0.25}', None)
-        )
+            line, b'42\t0\t12.34\t1.5\t{"V1":0.25}\t\\N\n')
         self.assertIn(b"\\N", line)
 
 
