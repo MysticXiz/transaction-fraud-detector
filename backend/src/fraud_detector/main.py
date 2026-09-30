@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.fraud_detector.infrastructure import models
+from src.fraud_detector.infrastructure import models  # noqa: F401
 from src.fraud_detector.api.routes.auth import auth_router
 from src.fraud_detector.api.routes.datasets import datasets_router
 from src.fraud_detector.api.routes.transactions import transactions_router
