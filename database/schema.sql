@@ -268,8 +268,10 @@ COMMENT ON TABLE log_evento IS
 -- 11. INDICES
 -- ---------------------------------------------------------------------
 CREATE INDEX idx_dataset_usuario      ON dataset (id_usuario);
-CREATE INDEX idx_transacao_dataset    ON transacao (id_dataset);
-CREATE INDEX idx_transacao_atributos  ON transacao USING GIN (atributos);
+-- idx_transacao_dataset era redundante com uk_transacao_origem (id_dataset, indice_origem),
+-- que já cobre buscas e ON DELETE CASCADE por id_dataset.
+-- idx_transacao_atributos (GIN) não é usado: atributos JSONB são lidos em bloco para o
+-- vetor do modelo, nunca filtrados por chave. Manter GIN encarece COPY e DELETE em massa.
 
 CREATE INDEX idx_execucao_dataset_modo ON execucao_analise (id_dataset, modo_execucao);
 CREATE INDEX idx_execucao_status       ON execucao_analise (status);
