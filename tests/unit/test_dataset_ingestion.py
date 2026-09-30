@@ -100,7 +100,9 @@ class DatasetCsvReaderTests(unittest.TestCase):
     def test_copy_text_keeps_json_and_null_label(self):
         parser = DatasetCsvReader(b"Time,V1,Amount\n1.5,0.25,12.34\n")
         line = next(parser.iter_copy_text(42))
-        self.assertEqual(line, _format_copy_line(42, 0, "12.34", "1.5", '{"V1":0.25}', None))
+        self.assertEqual(
+            line, _format_copy_line(42, 0, "12.34", "1.5", '{"V1":0.25}', None)
+        )
         self.assertIn(b"\\N", line)
 
 
@@ -109,7 +111,9 @@ class StreamUploadTests(unittest.TestCase):
         content = b"Time,Amount\n1,2\n"
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "out.csv"
-            digest, size = stream_upload_to_file(io.BytesIO(content), destination, 100, 4)
+            digest, size = stream_upload_to_file(
+                io.BytesIO(content), destination, 100, 4
+            )
             self.assertEqual(size, len(content))
             self.assertEqual(digest, hashlib.sha256(content).hexdigest())
             self.assertEqual(destination.read_bytes(), content)
@@ -152,7 +156,11 @@ class FakeRepository:
         for dataset in self.datasets:
             if dataset.id_dataset == dataset_id and dataset.id_usuario == owner_id:
                 return dataset
-        if self.dataset and self.dataset.id_dataset == dataset_id and self.dataset.id_usuario == owner_id:
+        if (
+            self.dataset
+            and self.dataset.id_dataset == dataset_id
+            and self.dataset.id_usuario == owner_id
+        ):
             return self.dataset
         return None
 
@@ -187,7 +195,9 @@ class ImportarDatasetUseCaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             storage = Path(directory)
             with self.assertRaises(DatasetCsvError):
-                ImportarDatasetUseCase(repository, storage, max_upload_bytes=1024).execute(
+                ImportarDatasetUseCase(
+                    repository, storage, max_upload_bytes=1024
+                ).execute(
                     io.BytesIO(b"Amount,Class\n1,0\n"), "bad.csv", 1, "Bad", None, "x"
                 )
             self.assertFalse(list(storage.glob("*")))
@@ -198,9 +208,9 @@ class ImportarDatasetUseCaseTests(unittest.TestCase):
         repository = FakeRepository(existing_hash=digest)
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(FileExistsError):
-                ImportarDatasetUseCase(repository, Path(directory), max_upload_bytes=1024).execute(
-                    io.BytesIO(content), "dup.csv", 1, "Dup", None, "x"
-                )
+                ImportarDatasetUseCase(
+                    repository, Path(directory), max_upload_bytes=1024
+                ).execute(io.BytesIO(content), "dup.csv", 1, "Dup", None, "x")
             self.assertFalse(list(Path(directory).glob("*")))
 
     def test_copy_error_removes_artifact_and_does_not_keep_dataset(self):
@@ -211,7 +221,9 @@ class ImportarDatasetUseCaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             repository = FailingRepository()
             with self.assertRaisesRegex(RuntimeError, "COPY"):
-                ImportarDatasetUseCase(repository, Path(directory), max_upload_bytes=1024).execute(
+                ImportarDatasetUseCase(
+                    repository, Path(directory), max_upload_bytes=1024
+                ).execute(
                     io.BytesIO(b"Time,Amount\n1,2.00\n"), "x.csv", 1, "X", None, "x"
                 )
             self.assertIsNone(repository.dataset)
@@ -225,9 +237,9 @@ class ImportarDatasetUseCaseTests(unittest.TestCase):
 
         def run(payload, name):
             try:
-                ImportarDatasetUseCase(repository, Path(directory), max_upload_bytes=1024).execute(
-                    io.BytesIO(payload), name, 1, name, None, "x"
-                )
+                ImportarDatasetUseCase(
+                    repository, Path(directory), max_upload_bytes=1024
+                ).execute(io.BytesIO(payload), name, 1, name, None, "x")
             except Exception as error:
                 errors.append(error)
 
@@ -365,12 +377,14 @@ class ConcurrentHashCheckTests(unittest.TestCase):
         content = b"Time,Amount\n9,8.00\n"
         repository = FakeRepository()
         with tempfile.TemporaryDirectory() as directory:
-            first = ImportarDatasetUseCase(repository, Path(directory), max_upload_bytes=1024)
+            first = ImportarDatasetUseCase(
+                repository, Path(directory), max_upload_bytes=1024
+            )
             first.execute(io.BytesIO(content), "one.csv", 1, "One", None, "x")
             with self.assertRaises(FileExistsError):
-                ImportarDatasetUseCase(repository, Path(directory), max_upload_bytes=1024).execute(
-                    io.BytesIO(content), "two.csv", 1, "Two", None, "x"
-                )
+                ImportarDatasetUseCase(
+                    repository, Path(directory), max_upload_bytes=1024
+                ).execute(io.BytesIO(content), "two.csv", 1, "Two", None, "x")
 
 
 if __name__ == "__main__":

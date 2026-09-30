@@ -66,7 +66,9 @@ class DatasetCsvReader:
             except csv.Error as error:
                 raise DatasetCsvError(f"Cabeçalho CSV inválido: {error}") from error
             except UnicodeDecodeError as error:
-                raise DatasetCsvError("O arquivo deve usar codificação UTF-8") from error
+                raise DatasetCsvError(
+                    "O arquivo deve usar codificação UTF-8"
+                ) from error
 
         self._validate_headers(headers)
         normalized_headers = tuple(header.casefold() for header in headers)
@@ -77,18 +79,26 @@ class DatasetCsvReader:
         if missing:
             raise DatasetCsvError("As colunas obrigatórias são Time e Amount")
 
-        matching_labels = [name for name in self.LABEL_COLUMNS if name in self._positions]
+        matching_labels = [
+            name for name in self.LABEL_COLUMNS if name in self._positions
+        ]
         if len(matching_labels) > 1:
-            raise DatasetCsvError("O arquivo deve conter no máximo uma coluna de rótulo")
+            raise DatasetCsvError(
+                "O arquivo deve conter no máximo uma coluna de rótulo"
+            )
         self._label_name = matching_labels[0] if matching_labels else None
         self.possui_rotulo = self._label_name is not None
         self._time_position = self._positions["time"]
         self._amount_position = self._positions["amount"]
-        self._label_position = self._positions[self._label_name] if self._label_name else None
+        self._label_position = (
+            self._positions[self._label_name] if self._label_name else None
+        )
         reserved = {self._time_position, self._amount_position}
         if self._label_position is not None:
             reserved.add(self._label_position)
-        self._feature_indexes = tuple(index for index in range(len(headers)) if index not in reserved)
+        self._feature_indexes = tuple(
+            index for index in range(len(headers)) if index not in reserved
+        )
         self._feature_names = tuple(headers[index] for index in self._feature_indexes)
 
     @staticmethod
@@ -146,7 +156,11 @@ class DatasetCsvReader:
                 label_str = "\\N"
             else:
                 label_str = "t" if rotulo else "f"
-            line = f"{indice}\t{valor}\t{tempo}\t{atributos_json}\t{label_str}\n".encode("utf-8")
+            line = (
+                f"{indice}\t{valor}\t{tempo}\t{atributos_json}\t{label_str}\n".encode(
+                    "utf-8"
+                )
+            )
             yield prefix + line
 
     def _iter_validated_rows(self) -> Iterator[tuple[int, str, str, str, bool | None]]:
@@ -172,17 +186,27 @@ class DatasetCsvReader:
                         )
 
                     amount_text = self._validate_numeric(
-                        row[amount_position].strip(), row_number, self.colunas[amount_position], 2, self._AMOUNT_LIMIT
+                        row[amount_position].strip(),
+                        row_number,
+                        self.colunas[amount_position],
+                        2,
+                        self._AMOUNT_LIMIT,
                     )
                     time_text = self._validate_numeric(
-                        row[time_position].strip(), row_number, self.colunas[time_position], 4, self._TIME_LIMIT
+                        row[time_position].strip(),
+                        row_number,
+                        self.colunas[time_position],
+                        4,
+                        self._TIME_LIMIT,
                     )
 
                     label: bool | None = None
                     if label_position is not None:
                         label_text = row[label_position].strip()
                         if not label_text:
-                            raise DatasetCsvError(f"Linha {row_number}, coluna '{self.colunas[label_position]}': valor vazio")
+                            raise DatasetCsvError(
+                                f"Linha {row_number}, coluna '{self.colunas[label_position]}': valor vazio"
+                            )
                         if label_text not in ("0", "1", "0.0", "1.0"):
                             try:
                                 label_float = float(label_text)
@@ -203,16 +227,24 @@ class DatasetCsvReader:
                         for key, idx in zip(feature_names, feature_indexes):
                             val_str = row[idx].strip()
                             if not val_str:
-                                raise DatasetCsvError(f"Linha {row_number}, coluna '{key}': valor vazio")
+                                raise DatasetCsvError(
+                                    f"Linha {row_number}, coluna '{key}': valor vazio"
+                                )
                             try:
                                 features[key] = float(val_str)
                             except ValueError:
-                                raise DatasetCsvError(f"Linha {row_number}, coluna '{key}': valor numérico inválido")
+                                raise DatasetCsvError(
+                                    f"Linha {row_number}, coluna '{key}': valor numérico inválido"
+                                )
                         try:
                             # allow_nan=False ensures no NaN/Inf is passed to JSON
-                            atributos_json = json.dumps(features, allow_nan=False, separators=(',', ':'))
+                            atributos_json = json.dumps(
+                                features, allow_nan=False, separators=(",", ":")
+                            )
                         except ValueError:
-                            raise DatasetCsvError(f"Linha {row_number}: valor numérico fora do limite (NaN ou Inf)")
+                            raise DatasetCsvError(
+                                f"Linha {row_number}: valor numérico fora do limite (NaN ou Inf)"
+                            )
 
                     yield transaction_index, amount_text, time_text, atributos_json, label
                     transaction_index += 1
@@ -230,31 +262,45 @@ class DatasetCsvReader:
         limit: float,
     ) -> str:
         if not value_text:
-            raise DatasetCsvError(f"Linha {row_number}, coluna '{column_name}': valor vazio")
+            raise DatasetCsvError(
+                f"Linha {row_number}, coluna '{column_name}': valor vazio"
+            )
         try:
             val_float = float(value_text)
         except ValueError:
-            raise DatasetCsvError(f"Linha {row_number}, coluna '{column_name}': valor numérico inválido")
-            
+            raise DatasetCsvError(
+                f"Linha {row_number}, coluna '{column_name}': valor numérico inválido"
+            )
+
         if not math.isfinite(val_float):
-            raise DatasetCsvError(f"Linha {row_number}, coluna '{column_name}': valor precisa ser finito")
-            
+            raise DatasetCsvError(
+                f"Linha {row_number}, coluna '{column_name}': valor precisa ser finito"
+            )
+
         if abs(val_float) >= limit:
-            raise DatasetCsvError(f"Linha {row_number}: {column_name} excede o limite aceito")
-            
-        parts = value_text.split('.')
+            raise DatasetCsvError(
+                f"Linha {row_number}: {column_name} excede o limite aceito"
+            )
+
+        parts = value_text.split(".")
         if len(parts) == 2:
             frac = parts[1]
-            if 'e' in frac or 'E' in frac:
+            if "e" in frac or "E" in frac:
                 try:
                     d = Decimal(value_text)
                     if d.quantize(Decimal(f"1e-{max_decimals}")) != d:
-                        raise DatasetCsvError(f"Linha {row_number}: {column_name} aceita no máximo {max_decimals} casas decimais")
+                        raise DatasetCsvError(
+                            f"Linha {row_number}: {column_name} aceita no máximo {max_decimals} casas decimais"
+                        )
                 except InvalidOperation:
-                    raise DatasetCsvError(f"Linha {row_number}, coluna '{column_name}': valor numérico inválido")
+                    raise DatasetCsvError(
+                        f"Linha {row_number}, coluna '{column_name}': valor numérico inválido"
+                    )
             elif len(frac) > max_decimals:
-                raise DatasetCsvError(f"Linha {row_number}: {column_name} aceita no máximo {max_decimals} casas decimais")
-                
+                raise DatasetCsvError(
+                    f"Linha {row_number}: {column_name} aceita no máximo {max_decimals} casas decimais"
+                )
+
         return value_text
 
 

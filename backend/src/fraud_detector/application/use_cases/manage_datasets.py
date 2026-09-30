@@ -10,7 +10,9 @@ from src.fraud_detector.computational.ingestion.dataset_csv import (
 )
 from src.fraud_detector.infrastructure.models.dataset import DatasetModel
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
-from src.fraud_detector.infrastructure.repositories.dataset_repository import RepositorioDataset
+from src.fraud_detector.infrastructure.repositories.dataset_repository import (
+    RepositorioDataset,
+)
 
 logger = logging.getLogger("fraud_detector.datasets")
 
@@ -87,8 +89,12 @@ class ImportarDatasetUseCase:
                 on_progress=_log_progress,
             )
             total_seconds = perf_counter() - total_started
-            rows_per_second = stats.rows_inserted / total_seconds if total_seconds else 0.0
-            megabytes_per_second = (file_size / (1024 * 1024)) / total_seconds if total_seconds else 0.0
+            rows_per_second = (
+                stats.rows_inserted / total_seconds if total_seconds else 0.0
+            )
+            megabytes_per_second = (
+                (file_size / (1024 * 1024)) / total_seconds if total_seconds else 0.0
+            )
             logger.info(
                 "Dataset %s importado arquivo=%s tamanho_bytes=%s linhas_processadas=%s "
                 "linhas_invalidas=0 linhas_inseridas=%s tempo_upload=%.3fs tempo_cabecalho=%.3fs "
@@ -127,10 +133,14 @@ class GerenciarDatasetsUseCase:
         self.repository = repository
         self.storage_path = storage_path.resolve()
 
-    def list_datasets(self, owner_id: int, offset: int, limit: int) -> list[DatasetModel]:
+    def list_datasets(
+        self, owner_id: int, offset: int, limit: int
+    ) -> list[DatasetModel]:
         return self.repository.list_by_owner(owner_id, offset, limit)
 
-    def get(self, dataset_id: int, owner_id: int) -> tuple[DatasetModel, list[TransacaoModel]]:
+    def get(
+        self, dataset_id: int, owner_id: int
+    ) -> tuple[DatasetModel, list[TransacaoModel]]:
         dataset = self.repository.get_by_id(dataset_id, owner_id)
         if dataset is None:
             raise LookupError("Dataset não encontrado")

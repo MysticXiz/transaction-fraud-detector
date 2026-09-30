@@ -10,18 +10,44 @@ from src.fraud_detector.domain.enums.user_roles import PapelUsuario
 
 class UsuarioModel(Base):
     """Mapeamento SQLAlchemy do usuário, incluindo apenas o hash da senha."""
+
     __tablename__ = "usuario"
 
-    id_usuario: Mapped[int] = mapped_column( Integer, primary_key=True, )
+    id_usuario: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
 
-    nome: Mapped[str] = mapped_column( String(120), nullable=False, )
+    nome: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
 
-    email: Mapped[str] = mapped_column( String(160), unique=True, nullable=False, )
+    email: Mapped[str] = mapped_column(
+        String(160),
+        unique=True,
+        nullable=False,
+    )
 
-    senha_hash: Mapped[str] = mapped_column( String(255), nullable=False, )
+    senha_hash: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
 
-    papel: Mapped[PapelUsuario] = mapped_column(SQLEnum(PapelUsuario, name="papel_usuario", create_type=False), nullable=False, default=PapelUsuario.ANALISTA)
+    papel: Mapped[PapelUsuario] = mapped_column(
+        SQLEnum(PapelUsuario, name="papel_usuario", create_type=False),
+        nullable=False,
+        default=PapelUsuario.ANALISTA,
+    )
 
-    ativo: Mapped[bool] = mapped_column( Boolean, nullable=False, default=True, )
+    ativo: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
 
-    criado_em: Mapped[datetime] = mapped_column( DateTime(timezone=True), nullable=False, server_default=func.now(), )
+    criado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

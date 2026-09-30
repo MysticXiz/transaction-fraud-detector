@@ -1,7 +1,11 @@
-from src.fraud_detector.infrastructure.repositories.transaction_repository import RepositorioTransacao
+from src.fraud_detector.infrastructure.repositories.transaction_repository import (
+    RepositorioTransacao,
+)
+
 
 class ExcluirTransacaoUseCase:
     """Remove uma transação e sinaliza quando o identificador não existe."""
+
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 

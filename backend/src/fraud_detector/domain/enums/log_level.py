@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class NivelLog(str, Enum):
     DEBUG = "DEBUG"
     INFO = "INFO"

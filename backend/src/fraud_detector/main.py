@@ -11,7 +11,9 @@ from src.fraud_detector.api.routes.transactions import transactions_router
 logging.getLogger("fraud_detector").setLevel(logging.INFO)
 if not logging.getLogger("fraud_detector").handlers:
     _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    )
     logging.getLogger("fraud_detector").addHandler(_handler)
     logging.getLogger("fraud_detector").propagate = True
 
@@ -33,11 +35,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 async def read_root():
     return {"message": "Hello, World!"}
 
+
 # Manter os routers em uma lista deixa explícito quais módulos estão publicados no bootstrap.
 routes = [auth_router, transactions_router, datasets_router]
 
-for route in routes: app.include_router(route)
+for route in routes:
+    app.include_router(route)

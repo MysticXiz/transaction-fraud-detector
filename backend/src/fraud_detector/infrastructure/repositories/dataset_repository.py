@@ -27,7 +27,11 @@ class IngestionLoadStats:
 def _driver_connection(session: Session):
     sa_connection = session.connection()
     raw = sa_connection.connection
-    return getattr(raw, "driver_connection", None) or getattr(raw, "dbapi_connection", None) or raw
+    return (
+        getattr(raw, "driver_connection", None)
+        or getattr(raw, "dbapi_connection", None)
+        or raw
+    )
 
 
 class RepositorioDataset:
@@ -35,7 +39,11 @@ class RepositorioDataset:
         self.db = db
 
     def get_by_hash(self, file_hash: str) -> DatasetModel | None:
-        return self.db.query(DatasetModel).filter(DatasetModel.hash_arquivo == file_hash).first()
+        return (
+            self.db.query(DatasetModel)
+            .filter(DatasetModel.hash_arquivo == file_hash)
+            .first()
+        )
 
     def create_with_copy(
         self,
@@ -61,7 +69,9 @@ class RepositorioDataset:
                     for line in parser.iter_copy_text(dataset.id_dataset):
                         parse_seconds += perf_counter() - parse_started
                         if total_records + 1 > 2_147_483_647:
-                            raise ValueError("O arquivo excede a quantidade máxima de transações")
+                            raise ValueError(
+                                "O arquivo excede a quantidade máxima de transações"
+                            )
                         write_started = perf_counter()
                         buffer.extend(line)
                         total_records += 1
@@ -96,7 +106,9 @@ class RepositorioDataset:
             self.db.rollback()
             raise
 
-    def list_by_owner(self, owner_id: int, offset: int, limit: int) -> list[DatasetModel]:
+    def list_by_owner(
+        self, owner_id: int, offset: int, limit: int
+    ) -> list[DatasetModel]:
         return (
             self.db.query(DatasetModel)
             .filter(DatasetModel.id_usuario == owner_id)
@@ -116,7 +128,9 @@ class RepositorioDataset:
             .first()
         )
 
-    def get_sample_transactions(self, dataset_id: int, limit: int = 10) -> list[TransacaoModel]:
+    def get_sample_transactions(
+        self, dataset_id: int, limit: int = 10
+    ) -> list[TransacaoModel]:
         return (
             self.db.query(TransacaoModel)
             .filter(TransacaoModel.id_dataset == dataset_id)
