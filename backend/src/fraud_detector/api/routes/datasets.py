@@ -1,6 +1,15 @@
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.exc import IntegrityError
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
@@ -14,17 +23,23 @@ from src.fraud_detector.application.use_cases.manage_datasets import (
     GerenciarDatasetsUseCase,
     ImportarDatasetUseCase,
 )
-from src.fraud_detector.computational.ingestion.dataset_csv import DatasetCsvError, DatasetTooLargeError
+from src.fraud_detector.computational.ingestion.dataset_csv import (
+    DatasetCsvError,
+    DatasetTooLargeError,
+)
 from src.fraud_detector.config.settings import settings
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
-from src.fraud_detector.infrastructure.repositories.dataset_repository import RepositorioDataset
-
+from src.fraud_detector.infrastructure.repositories.dataset_repository import (
+    RepositorioDataset,
+)
 
 datasets_router = APIRouter(prefix="/datasets", tags=["Datasets"])
 logger = logging.getLogger(__name__)
 
 
-@datasets_router.post("", response_model=DatasetRespostaSchema, status_code=status.HTTP_201_CREATED)
+@datasets_router.post(
+    "", response_model=DatasetRespostaSchema, status_code=status.HTTP_201_CREATED
+)
 def upload_dataset(
     arquivo: UploadFile = File(...),
     nome: str = Form(..., min_length=1, max_length=160),
@@ -34,7 +49,10 @@ def upload_dataset(
     repository: RepositorioDataset = Depends(get_dataset_repository),
 ):
     if not arquivo.filename or not arquivo.filename.casefold().endswith(".csv"):
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Envie um arquivo .csv")
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Envie um arquivo .csv",
+        )
 
     try:
         return ImportarDatasetUseCase(
@@ -53,13 +71,21 @@ def upload_dataset(
             origin=origem,
         )
     except DatasetTooLargeError as error:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(error)
+        ) from error
     except DatasetCsvError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
     except FileExistsError as error:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
     except IntegrityError as error:
-        constraint_name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+        constraint_name = getattr(
+            getattr(error.orig, "diag", None), "constraint_name", None
+        )
         if constraint_name == "uk_dataset_hash":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -71,7 +97,9 @@ def upload_dataset(
             detail="Conflito de integridade ao persistir o dataset. Consulte o log do backend.",
         ) from error
     except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
 
 
 @datasets_router.get("", response_model=list[DatasetRespostaSchema])
@@ -81,9 +109,9 @@ def list_datasets(
     current_user: UsuarioModel = Depends(get_current_user),
     repository: RepositorioDataset = Depends(get_dataset_repository),
 ):
-    return GerenciarDatasetsUseCase(repository, settings.dataset_storage_path).list_datasets(
-        current_user.id_usuario, offset, limit
-    )
+    return GerenciarDatasetsUseCase(
+        repository, settings.dataset_storage_path
+    ).list_datasets(current_user.id_usuario, offset, limit)
 
 
 @datasets_router.get("/{dataset_id}", response_model=DatasetDetalheSchema)
@@ -97,7 +125,9 @@ def get_dataset(
             repository, settings.dataset_storage_path
         ).get(dataset_id, current_user.id_usuario)
     except LookupError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
+        ) from error
     return DatasetDetalheSchema(
         **DatasetRespostaSchema.model_validate(dataset).model_dump(),
         amostra=[TransacaoAmostraDatasetSchema.model_validate(row) for row in sample],
@@ -115,7 +145,9 @@ def delete_dataset(
             dataset_id, current_user.id_usuario
         )
     except LookupError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
+        ) from error
     except IntegrityError as error:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

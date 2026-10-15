@@ -7,6 +7,7 @@ from src.fraud_detector.domain.enums.user_roles import PapelUsuario
 
 class UsuarioCadastroSchema(BaseModel):
     """Contrato de entrada usado no cadastro administrativo."""
+
     nome: str = Field(..., min_length=2, max_length=120)
     email: EmailStr
     senha: str = Field(..., min_length=8, max_length=255)
@@ -17,13 +18,16 @@ class UsuarioLoginSchema(BaseModel):
     email: EmailStr
     senha: str
 
+
 class UsuarioAtualizacaoSchema(BaseModel):
     nome: str | None = Field(None, min_length=2, max_length=120)
     email: EmailStr | None = None
     senha: str | None = Field(None, min_length=8, max_length=255)
 
+
 class UsuarioRespostaSchema(BaseModel):
     """Contrato público; senha e hash ficam deliberadamente fora da resposta."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id_usuario: int
@@ -32,6 +36,7 @@ class UsuarioRespostaSchema(BaseModel):
     papel: str
     ativo: bool
     criado_em: datetime
+
 
 class TokenRespostaSchema(BaseModel):
     access_token: str

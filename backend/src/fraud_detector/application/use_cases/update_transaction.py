@@ -1,8 +1,12 @@
 from src.fraud_detector.api.schemas.transaction import TransacaoAtualizacaoSchema
-from src.fraud_detector.infrastructure.repositories.transaction_repository import RepositorioTransacao
+from src.fraud_detector.infrastructure.repositories.transaction_repository import (
+    RepositorioTransacao,
+)
+
 
 class AtualizarTransacaoUseCase:
     """Atualiza somente os campos enviados pelo cliente."""
+
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 

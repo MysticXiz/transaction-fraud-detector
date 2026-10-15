@@ -5,6 +5,7 @@ from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 class RepositorioUsuario:
     """Encapsula operações de persistência do usuário para os casos de uso."""
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -19,7 +20,11 @@ class RepositorioUsuario:
         return user
 
     def update(self, id_usuario: int, updates: dict) -> UsuarioModel | None:
-        user = self.db.query(UsuarioModel).filter(UsuarioModel.id_usuario == id_usuario).first()
+        user = (
+            self.db.query(UsuarioModel)
+            .filter(UsuarioModel.id_usuario == id_usuario)
+            .first()
+        )
         if user is None:
             return None
         for field, value in updates.items():

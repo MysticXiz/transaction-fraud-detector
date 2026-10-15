@@ -1,0 +1,37 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  quality-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black pytest
+          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+
+      - name: Verificar formatação com Black
+        run: black --check backend/ tests/
+
+      - name: Executar lint com Ruff
+        run: ruff check backend/ tests/
+
+      - name: Executar testes com Pytest
+        env:
+          PYTHONPATH: backend
+          JWT_SECRET_KEY: "chave-ficticia-para-testes-ci"
+          DATABASE_URL: "sqlite:///./test.db"
+        run: pytest tests/

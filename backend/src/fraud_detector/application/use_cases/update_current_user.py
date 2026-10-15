@@ -1,7 +1,10 @@
 from src.fraud_detector.api.schemas.user import UsuarioAtualizacaoSchema
 from src.fraud_detector.domain.entities.user import Usuario
-from src.fraud_detector.infrastructure.repositories.user_repository import RepositorioUsuario
+from src.fraud_detector.infrastructure.repositories.user_repository import (
+    RepositorioUsuario,
+)
 from src.fraud_detector.infrastructure.security.password import hash_password
+
 
 class AtualizarUsuarioAtualUseCase:
     def __init__(self, user_repository: RepositorioUsuario):

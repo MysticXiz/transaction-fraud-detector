@@ -1,8 +1,12 @@
 from src.fraud_detector.domain.entities.transaction import Transacao
-from src.fraud_detector.infrastructure.repositories.transaction_repository import RepositorioTransacao
+from src.fraud_detector.infrastructure.repositories.transaction_repository import (
+    RepositorioTransacao,
+)
+
 
 class ObterTransacaoUseCase:
     """Consulta transações através da abstração de repositório."""
+
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 

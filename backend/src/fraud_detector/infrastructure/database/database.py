@@ -27,6 +27,7 @@ def get_db():
     finally:
         db.close()
 
+
 def test_connection():
     """Executa uma consulta mínima para verificar a conectividade com o banco."""
     with engine.connect() as connection:
