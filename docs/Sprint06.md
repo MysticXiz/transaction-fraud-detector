@@ -123,7 +123,7 @@ Não foram anexadas capturas de tela nesta execução; não foram substituídas 
 
 As branches `feature/resultados-metricas` e `feature/testes-documentacao` já continham trabalho anterior integrado à base de `develop`; não receberam alterações específicas nesta Sprint.
 
-## 8. Histórico completo de commits desta Sprint
+## 8. Histórico dos commits de implementação e integração desta Sprint
 
 | Commit | Branch | Descrição |
 |---|---|---|
@@ -133,6 +133,7 @@ As branches `feature/resultados-metricas` e `feature/testes-documentacao` já co
 | `bce4f3f` | `develop` | Merge correção de formatação CI em develop |
 
 O repositório completo, com os commits e branches publicados, está em https://github.com/MysticXiz/transaction-fraud-detector.
+O commit que versiona este documento também está registrado no histórico da branch `develop`.
 
 ## 9. Dificuldades encontradas e próximos passos
 
@@ -145,11 +146,11 @@ O repositório completo, com os commits e branches publicados, está em https://
 
 ### Próximos passos
 
-1. Confirmar a conclusão bem-sucedida da pipeline #16 antes da apresentação; se falhar, registrar a causa e corrigir.
-2. Aplicar os patches SQL pendentes nos bancos já existentes: `database/patches/analysis_opencl_device.sql`, `benchmark_opencl_device.sql`, `cancellable_jobs.sql` e `dataset_hash_per_user.sql`.
-3. Executar o roteiro integrado com PostgreSQL e capturar as evidências de tela indicadas na seção 4.3.
-4. Demonstrar o acesso com os três papéis e a alternância entre contas usando dados separados.
-5. Repetir a validação em ambiente com dispositivos OpenCL disponíveis e documentar quais dispositivos foram detectados.
+1. Aplicar os patches SQL pendentes nos bancos já existentes: `database/patches/analysis_opencl_device.sql`, `benchmark_opencl_device.sql`, `cancellable_jobs.sql` e `dataset_hash_per_user.sql`.
+2. Executar o roteiro integrado com PostgreSQL e capturar as evidências de tela indicadas na seção 4.3.
+3. Demonstrar o acesso com os três papéis e a alternância entre contas usando dados separados.
+4. Repetir a validação em ambiente com dispositivos OpenCL disponíveis e documentar quais dispositivos foram detectados.
+5. Manter as verificações automatizadas da CI em novas alterações; a pipeline #16 validou com sucesso a implementação integrada.
 
 ---
 
