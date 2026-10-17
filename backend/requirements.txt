@@ -21,3 +21,4 @@ pydantic-settings==2.15.0
 pandas>=2.0.0
 numpy>=1.26.0
 scikit-learn>=1.3.0
+pyopencl>=2024.3.1
