@@ -23,10 +23,10 @@ O objetivo desta Sprint 02 é **fechar essas definições** e traduzir os requis
 | Item | Status Sprint 01 | Decisão Sprint 02 | Justificativa técnica |
 |---|---|---|---|
 | Framework web | FastAPI / Flask / equiv. | **FastAPI 0.115+** | Geração automática de OpenAPI/Swagger, validação declarativa via Pydantic e suporte nativo a execução em segundo plano (`BackgroundTasks`), necessário porque uma análise sobre centenas de milhares de registros não pode bloquear a requisição HTTP. |
-| Biblioteca de dados | Pandas / NumPy / Polars / Dask | **Pandas 2.x + NumPy** | Decisão crítica para a validade do experimento. Polars e Dask paralelizam internamente por padrão; adotá-los tornaria impossível estabelecer um *baseline* sequencial honesto, invalidando as métricas de *speedup* exigidas pelo RF09. Pandas é predominantemente single-thread, garantindo que o ganho medido decorra exclusivamente da paralelização implementada pela equipe. |
-| Modelo de IA | Isolation Forest / XGBoost / Autoencoder / Reg. Logística | **Isolation Forest (principal) + Regressão Logística (comparativo)** | O Isolation Forest é não supervisionado, robusto a desbalanceamento extremo de classes e, sobretudo, sua fase de inferência é *embarrassingly parallel*: cada bloco de transações pode ser pontuado de forma totalmente independente, sem comunicação entre processos. Isso o torna o algoritmo ideal para evidenciar o ganho da arquitetura paralela. A Regressão Logística atua como referência supervisionada para avaliação de qualidade da classificação. |
+| Biblioteca de dados | Pandas / NumPy / Polars / Dask | **Pandas 2.x + NumPy** | Pandas e NumPy fornecem a representação tabular e matricial usada na ingestão e no pré-processamento. A execução paralela explícita do projeto ocorre em kernels OpenCL, sem pressupor ganho de desempenho. |
+| Modelo de IA | Isolation Forest / XGBoost / Autoencoder / Reg. Logística | **Isolation Forest (principal) + Regressão Logística (comparativo)** | O Isolation Forest é não supervisionado e adequado a classes desbalanceadas. A pontuação de cada transação é independente, permitindo percorrer suas árvores em work-items OpenCL. A execução no dispositivo é o requisito; não se pressupõe ganho de desempenho. A Regressão Logística permanece como referência supervisionada para avaliação de qualidade da classificação. |
 | Base de dados de entrada | Pública/sintética | **Credit Card Fraud Detection (ULB — Université Libre de Bruxelles)** | 284.807 transações, 492 fraudes (0,172%), atributos já anonimizados por PCA (V1–V28). Atende integralmente ao RNF de Segurança definido na Sprint 01, pois não contém nenhum dado pessoal identificável. Volume suficiente para tornar a carga *CPU-bound*. |
-| Paralelização | multiprocessing / concurrent.futures | **`concurrent.futures.ProcessPoolExecutor`** | API de mais alto nível, com propagação estruturada de exceções (atende ao RNF de Confiabilidade) e suporte a `initializer`, que permite carregar o modelo **uma única vez por worker**, evitando a re-serialização do estimador a cada bloco — principal causa de anulação do ganho de desempenho. |
+| Paralelização | OpenCL via biblioteca Python | **PyOpenCL** | A inferência paralela é executada por kernels OpenCL, com suporte a dispositivos GPU e CPU que exponham um runtime OpenCL. O foco do requisito é utilizar o modelo de programação paralela OpenCL; não há garantia de ganho de desempenho em relação à execução sequencial. |
 | Banco de dados | A DEFINIR | **PostgreSQL 16** (via Docker Compose) + **SQLAlchemy 2.0** + **Alembic** | Necessário suporte a tipos `JSONB` (atributos variáveis de transação) e `ENUM` nativos, ausentes ou limitados no SQLite. Alembic garante versionamento do esquema, coerente com o RNF de Manutenibilidade. |
 | Frontend | Opcional | **Protótipo Figma nesta Sprint; React 18 + Vite + Tailwind na Sprint 03** | Mantém a camada de apresentação como cliente exclusivo da API, conforme já previsto na Sprint 01. |
 
@@ -38,7 +38,7 @@ O objetivo desta Sprint 02 é **fechar essas definições** e traduzir os requis
 
 O sistema adota uma **arquitetura em camadas sobre um monólito modular**, complementada por um **componente de execução paralela** isolado no núcleo de domínio.
 
-A opção pelo monólito modular — e não por microsserviços — é deliberada. O projeto possui um único fluxo de negócio coeso (importar → pré-processar → detectar → reportar), e a introdução de fronteiras de rede entre módulos adicionaria latência e overhead de serialização que **poluiriam justamente a medição de desempenho** que constitui o objeto central de estudo da disciplina de Tópicos Avançados. A modularização é obtida por separação de pacotes e inversão de dependência, não por separação de processos de serviço.
+A opção pelo monólito modular — e não por microsserviços — é deliberada. O projeto possui um único fluxo de negócio coeso (importar → pré-processar → detectar → reportar). A modularização é obtida por separação de pacotes e inversão de dependência, não por separação de processos de serviço.
 
 ### 1.2 Camadas
 
@@ -47,8 +47,8 @@ A opção pelo monólito modular — e não por microsserviços — é deliberad
 | **Apresentação** | Interface do analista; consome exclusivamente a API REST. Não contém regra de negócio. | React + Vite (Sprint 03) / CLI (Typer) |
 | **API / Interface** | Exposição de endpoints HTTP, serialização, validação de contrato, autenticação. | FastAPI + Pydantic v2 |
 | **Aplicação (Serviços)** | Orquestração dos casos de uso. Coordena importação, disparo de análises, benchmark e consulta de resultados. Não conhece HTTP nem SQL. | Python puro |
-| **Domínio / Núcleo Analítico** | Regras de detecção, pré-processamento, particionamento e estratégias de execução. **Camada independente de framework.** | scikit-learn, Pandas, NumPy |
-| **Componente Computacional Avançado** | Distribuição da carga entre múltiplos processos de CPU, coleta de métricas e cálculo de speedup/eficiência. | `concurrent.futures`, `os.cpu_count`, `psutil` |
+| **Domínio / Núcleo Analítico** | Regras de detecção, pré-processamento, particionamento e estratégias de execução. **Camada independente de framework.** | scikit-learn, Pandas, NumPy, PyOpenCL |
+| **Componente Computacional Avançado** | Execução de kernels OpenCL sobre dispositivos disponíveis e agregação ordenada dos resultados. | PyOpenCL, runtime OpenCL |
 | **Persistência** | Repositórios, mapeamento objeto-relacional e migrações. | SQLAlchemy 2.0, Alembic, PostgreSQL 16 |
 
 O isolamento do Núcleo Analítico atende diretamente ao RNF de Manutenibilidade da Sprint 01 ("a lógica do motor analítico deverá permanecer independente da camada de apresentação"): o motor de detecção pode ser executado por script, por CLI ou pela API sem qualquer alteração de código.
@@ -89,13 +89,11 @@ flowchart TB
 
     subgraph PARALLEL["COMPONENTE COMPUTACIONAL AVANÇADO"]
         E1["ExecutionStrategy<br/>(interface)"]
-        E2["SequentialExecutor<br/>baseline"]
-        E3["ParallelExecutor<br/>ProcessPoolExecutor"]
+        E2["SequentialExecutor<br/>baseline CPU"]
+        E3["OpenCLExecutor<br/>PyOpenCL"]
         E4["ChunkSplitter"]
-        E5["MetricsCollector<br/>psutil"]
-        W1["Worker 1"]
-        W2["Worker 2"]
-        WN["Worker N"]
+        E5["MetricsCollector"]
+        W1["OpenCL work-items<br/>dispositivo"]
     end
 
     subgraph PERSIST["CAMADA DE PERSISTÊNCIA"]
@@ -116,11 +114,7 @@ flowchart TB
     E1 --> E3
     E3 --> E4
     E3 --> W1
-    E3 --> W2
-    E3 --> WN
     W1 --> P5
-    W2 --> P5
-    WN --> P5
     P5 --> P6
     P5 --> P7
     E3 --> E5
@@ -139,7 +133,7 @@ flowchart TB
 5. O `ChunkSplitter` particiona a matriz em blocos independentes de tamanho configurável (UC03).
 6. A `ExecutionStrategy` selecionada executa a inferência:
    - **`SequentialExecutor`**: itera os blocos em um único processo — constitui o *baseline* (PB09).
-   - **`ParallelExecutor`**: submete os blocos a um `ProcessPoolExecutor`. Cada worker carrega o modelo uma única vez, no `initializer` (PB10).
+   - **`OpenCLExecutor`**: envia os arrays contíguos e os parâmetros do modelo para um dispositivo OpenCL. Os work-items pontuam transações em paralelo, e o host reagrega os blocos pela ordem original (PB10).
 7. Os escores retornados são reagregados **na ordem original dos índices**, garantindo o RNF de Paralelização ("a paralelização não deverá alterar o resultado final da classificação"). Essa equivalência será verificada por teste automatizado comparando os vetores de saída sequencial e paralelo.
 8. O limiar de decisão é aplicado, as transações são rotuladas (RF06) e persistidas em `resultado_deteccao`.
 9. O `MetricsCollector` grava tempo total, tempo por etapa, uso de CPU e memória em `metrica_execucao` (RF08, PB13).
@@ -147,7 +141,7 @@ flowchart TB
 
 ### 1.5 Integração com o componente computacional avançado
 
-O componente avançado é o **pipeline de processamento paralelo em CPU**. Sua integração com o software ocorre pelo **padrão Strategy**: a camada de aplicação depende da abstração `ExecutionStrategy`, jamais de uma implementação concreta.
+O componente avançado é o **pipeline de processamento paralelo com OpenCL**. Sua integração com o software ocorre pelo **padrão Strategy**: a camada de aplicação depende da abstração `ExecutionStrategy`, jamais de uma implementação concreta.
 
 ```python
 resultado = self.execution_strategy.execute(matriz, detector)
@@ -155,22 +149,15 @@ resultado = self.execution_strategy.execute(matriz, detector)
 
 Essa decisão traz três consequências práticas:
 
-- **Comparabilidade (RF09):** trocar sequencial por paralelo é uma troca de objeto, o que garante que ambos os modos percorram exatamente o mesmo caminho de código, isolando a variável em estudo.
-- **Extensibilidade:** uma futura estratégia baseada em `ThreadPoolExecutor` ou em GPU pode ser adicionada sem alterar os serviços.
+- **Comparabilidade (RF09):** a pontuação sequencial e a OpenCL usam o mesmo modelo ajustado, permitindo verificar equivalência sem exigir speedup.
+- **Extensibilidade:** o runtime seleciona um dispositivo OpenCL disponível, como GPU ou CPU, sem alterar os serviços de aplicação.
 - **Testabilidade:** o executor pode ser substituído por um *fake* nos testes unitários.
 
-**Tratamento do overhead.** A proposta da Sprint 01 já registrava que a paralelização introduz custos de criação de processos, serialização e comunicação interprocessos. A arquitetura mitiga esses custos com três medidas concretas:
+**Uso do dispositivo.** A compilação do kernel e a transferência entre host e dispositivo têm custo e podem fazer a execução OpenCL ficar mais lenta em algumas máquinas. O objetivo funcional é executar a estratégia paralela com OpenCL, não prometer superioridade de desempenho. A implementação limita transferências e oferece chunks configuráveis:
 
-1. **Carga única do modelo por worker** via `initializer`, evitando serializar o estimador a cada bloco submetido.
-2. **Blocos dimensionados para amortizar o custo de IPC** — o tamanho do bloco é parametrizável e será calibrado experimentalmente (a hipótese da equipe é que blocos pequenos demais tornarão o overhead dominante).
-3. **Transferência de arrays NumPy contíguos**, e não de DataFrames, reduzindo o volume serializado pelo `pickle`.
-
-As métricas formais avaliadas serão:
-
-- **Speedup:** `S(n) = T_sequencial / T_paralelo(n)`
-- **Eficiência:** `E(n) = S(n) / n`, onde `n` é o número de processos
-
-Espera-se que a eficiência decresça com o aumento de `n`, conforme a Lei de Amdahl, uma vez que as fases de leitura e pré-processamento permanecem parcialmente seriais. A caracterização empírica dessa curva é um dos resultados esperados do projeto.
+1. **Ajuste do modelo no host** com `n_jobs=1`, evitando paralelismo interno concorrente do scikit-learn.
+2. **Transferência de arrays NumPy contíguos** e tabelas das árvores, em vez de DataFrames e objetos Python.
+3. **Pontuação de transações em work-items OpenCL**, preservando a correspondência e ordem das linhas.
 
 ### 1.6 Estrutura de diretórios
 
@@ -410,15 +397,15 @@ classDiagram
         +nome() str
     }
 
-    class ParallelExecutor {
-        -int numWorkers
+    class OpenCLExecutor {
+        -int workGroupSize
         -int tamanhoChunk
         -ChunkSplitter divisor
         +executar(X, detector) ResultadoExecucao
         +nome() str
-        -inicializarWorker(caminhoModelo)$ void
-        -processarChunk(chunk)$ ndarray
-        -reagregar(parciais) ndarray
+        -compilarKernel() void
+        -pontuarChunk(chunk) ndarray
+        -reagregarNaOrdem(parciais) ndarray
     }
 
     class ChunkSplitter {
@@ -478,8 +465,8 @@ classDiagram
     FraudDetector <|-- IsolationForestDetector
     FraudDetector <|-- LogisticRegressionDetector
     ExecutionStrategy <|-- SequentialExecutor
-    ExecutionStrategy <|-- ParallelExecutor
-    ParallelExecutor *-- ChunkSplitter
+    ExecutionStrategy <|-- OpenCLExecutor
+    OpenCLExecutor *-- ChunkSplitter
     ExecutionStrategy o-- MetricsCollector
 
     AnalysisService --> ExecutionStrategy : usa
@@ -506,7 +493,7 @@ classDiagram
 
 ### 2.4 Observações sobre classes específicas
 
-- Os métodos `inicializarWorker` e `processarChunk` de `ParallelExecutor` são **estáticos**. Isso não é detalhe de estilo: funções submetidas a um `ProcessPoolExecutor` precisam ser serializáveis por `pickle` no nível do módulo, e métodos de instância que carregam referência ao objeto completo falhariam ou transportariam estado desnecessário entre processos.
+- A implementação OpenCL transfere a estrutura numérica das árvores e os índices das features para buffers do dispositivo; o kernel percorre as árvores sem transportar objetos Python ou depender de serialização entre processos.
 - `MetricaExecucao` mantém relação de composição **1:1 obrigatória** com `ExecucaoAnalise`, refletindo o RNF de que toda execução deve fornecer medição de tempo.
 - `Transacao` armazena atributos variáveis em um dicionário mapeado para `JSONB`, permitindo que o sistema receba bases com esquemas diferentes sem alteração do modelo.
 
@@ -1084,10 +1071,11 @@ Um item é considerado concluído quando: o artefato está versionado no reposit
 
 | Risco | Impacto | Mitigação |
 |---|---|---|
-| Overhead de IPC anular o ganho da paralelização | Alto | Calibração experimental do tamanho de bloco; carga do modelo via `initializer`; transferência de arrays NumPy em vez de DataFrames |
+| Runtime OpenCL ausente ou incompatível com o dispositivo | Alto | Documentar e verificar a instalação do driver/runtime; informar explicitamente quando não houver dispositivo OpenCL disponível |
+| Transferência host/dispositivo e compilação do kernel aumentarem o tempo | Médio | Medir cada etapa e permitir chunks configuráveis; desempenho não é critério de aceitação da execução OpenCL |
 | Desbalanceamento extremo da base prejudicar a avaliação | Médio | Adoção de métricas apropriadas (precisão, recall, AUC-PR) em vez de acurácia |
 | Inserção de milhões de linhas em `resultado_deteccao` ser lenta | Médio | Uso de `COPY` / inserção em lote do PostgreSQL |
-| Indisponibilidade de máquina com muitos núcleos para o benchmark | Baixo | Padronização do ambiente de teste e registro da configuração de hardware em cada execução |
+| Diferenças entre dispositivos OpenCL | Médio | Testar equivalência dos escores e classificação contra a referência sequencial |
 
 ---
 
