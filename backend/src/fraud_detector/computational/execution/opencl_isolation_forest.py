@@ -19,6 +19,9 @@ class OpenCLExecutionError(RuntimeError):
     """Raised when an OpenCL kernel cannot be built or executed."""
 
 
+OpenCLDeviceType = Literal["CPU", "GPU"]
+
+
 @dataclass(frozen=True, slots=True)
 class OpenCLExecutionResult:
     scores: NDArray[np.float32]
@@ -127,6 +130,7 @@ class OpenCLIsolationForestExecutor:
         n_estimators: int = 200,
         contamination: float | Literal["auto"] = 0.0017,
         random_state: int = 42,
+        device_type: OpenCLDeviceType | None = None,
     ):
         self._model = IsolationForest(
             n_estimators=n_estimators,
@@ -141,11 +145,47 @@ class OpenCLIsolationForestExecutor:
         self._queue: cl.CommandQueue | None = None
         self._kernel: cl.Kernel | None = None
         self._device: cl.Device | None = None
+        self._device_type = device_type
 
     @staticmethod
     def available_device() -> tuple[str, str]:
         device = _select_device()
         return device.platform.name, device.name
+
+    @staticmethod
+    def available_devices() -> list[tuple[OpenCLDeviceType, str, str, int]]:
+        available: list[tuple[OpenCLDeviceType, str, str, int]] = []
+        errors: list[str] = []
+        device_types: tuple[OpenCLDeviceType, ...] = ("CPU", "GPU")
+        for device_type in device_types:
+            try:
+                executor = OpenCLIsolationForestExecutor(device_type=device_type)
+                _, _, kernel, device = executor._get_runtime()
+                try:
+                    kernel_max_size = kernel.get_work_group_info(
+                        cl.kernel_work_group_info.WORK_GROUP_SIZE, device
+                    )
+                except cl.Error as error:
+                    raise OpenCLExecutionError(
+                        f"Não foi possível consultar o limite do dispositivo "
+                        f"{device.name}: {error}"
+                    ) from error
+                available.append(
+                    (
+                        device_type,
+                        device.platform.name,
+                        device.name,
+                        min(device.max_work_group_size, kernel_max_size, 128),
+                    )
+                )
+            except (OpenCLRuntimeUnavailableError, OpenCLExecutionError) as error:
+                errors.append(f"{device_type}: {error}")
+        if not available:
+            raise OpenCLRuntimeUnavailableError(
+                "Nenhum dispositivo CPU ou GPU OpenCL compatível foi encontrado. "
+                + "; ".join(errors)
+            )
+        return available
 
     def fit(self, features: NDArray[np.number]) -> OpenCLIsolationForestExecutor:
         matrix = _validate_matrix(features, minimum_rows=2)
@@ -266,7 +306,7 @@ class OpenCLIsolationForestExecutor:
         ):
             return self._context, self._queue, self._kernel, self._device
 
-        device = _select_device()
+        device = _select_device(self._device_type)
         try:
             context = cl.Context(devices=[device])
             queue = cl.CommandQueue(context, device=device)
@@ -333,7 +373,7 @@ def _get_platforms() -> list[cl.Platform]:
         ) from error
 
 
-def _select_device() -> cl.Device:
+def _select_device(device_type: OpenCLDeviceType | None = None) -> cl.Device:
     platforms = _get_platforms()
     devices: list[cl.Device] = []
     errors: list[str] = []
@@ -350,6 +390,14 @@ def _select_device() -> cl.Device:
             f"OpenCL compatível com o hardware. Detalhes: {detail}"
         )
 
+    if device_type == "CPU":
+        devices = [device for device in devices if device.type & cl.device_type.CPU]
+    elif device_type == "GPU":
+        devices = [device for device in devices if device.type & cl.device_type.GPU]
+    if device_type is not None and not devices:
+        raise OpenCLRuntimeUnavailableError(
+            f"Nenhum dispositivo {device_type} OpenCL está disponível."
+        )
     devices.sort(key=lambda device: not bool(device.type & cl.device_type.GPU))
     return devices[0]
 

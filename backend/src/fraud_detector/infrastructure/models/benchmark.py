@@ -29,6 +29,10 @@ class BenchmarkModel(Base):
         Integer, ForeignKey("dataset.id_dataset", ondelete="CASCADE"), nullable=False
     )
     descricao: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="PENDENTE", server_default="PENDENTE"
+    )
+    mensagem_erro: Mapped[str | None] = mapped_column(String(2000))
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -59,5 +63,6 @@ class BenchmarkExecucaoModel(Base):
         ENUM(PapelBenchmark, name="papel_benchmark", create_type=False),
         nullable=False,
     )
+    tipo_dispositivo: Mapped[str | None] = mapped_column(String(3))
     speedup: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     eficiencia: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))

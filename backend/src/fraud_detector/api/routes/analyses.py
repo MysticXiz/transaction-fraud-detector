@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
+from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.api.schemas.analysis import (
     AvaliacaoHistoricoSchema,
     CriarExecucaoSchema,
@@ -31,11 +32,17 @@ from src.fraud_detector.api.schemas.analysis import (
     ResultadosPaginaSchema,
     TransacaoDetalheSchema,
 )
+from src.fraud_detector.api.schemas.opencl import OpenCLCapabilitiesSchema
 from src.fraud_detector.application.analysis_service import (
     AnalysisNotFoundError,
     AnalysisRequestError,
     create_execution,
     run_execution_in_background,
+)
+from src.fraud_detector.computational.execution.opencl_isolation_forest import (
+    OpenCLExecutionError,
+    OpenCLIsolationForestExecutor,
+    OpenCLRuntimeUnavailableError,
 )
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
@@ -50,11 +57,40 @@ from src.fraud_detector.infrastructure.models.execution import (
     MetricaExecucaoModel,
     ResultadoDeteccaoModel,
 )
+from src.fraud_detector.infrastructure.models.benchmark import (
+    BenchmarkExecucaoModel,
+    BenchmarkModel,
+)
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 analyses_router = APIRouter(prefix="/analises", tags=["Análises"])
 models_router = APIRouter(prefix="/modelos", tags=["Modelos"])
+
+
+@analyses_router.get(
+    "/capacidades", response_model=OpenCLCapabilitiesSchema
+)
+def get_analysis_capabilities(
+    _: UsuarioModel = Depends(get_current_user),
+):
+    try:
+        devices = OpenCLIsolationForestExecutor.available_devices()
+    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
+        raise HTTPException(
+            status_code=503, detail=f"Dispositivo OpenCL indisponível: {error}"
+        ) from error
+    return OpenCLCapabilitiesSchema(
+        dispositivos=[
+            {
+                "tipo": device_type,
+                "plataforma": platform,
+                "nome": device_name,
+                "max_workers": max_workers,
+            }
+            for device_type, platform, device_name, max_workers in devices
+        ]
+    )
 
 
 @analyses_router.post(
@@ -65,9 +101,51 @@ models_router = APIRouter(prefix="/modelos", tags=["Modelos"])
 def create_analysis(
     payload: CriarExecucaoSchema,
     background_tasks: BackgroundTasks,
-    current_user: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
 ):
+    if payload.modo_execucao == ModoExecucao.SEQUENCIAL:
+        if payload.tipo_dispositivo is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="A execução sequencial não seleciona dispositivo OpenCL",
+            )
+    elif payload.tipo_dispositivo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selecione CPU ou GPU para a execução paralela",
+        )
+    else:
+        try:
+            devices = OpenCLIsolationForestExecutor.available_devices()
+        except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Dispositivo OpenCL indisponível: {error}",
+            ) from error
+        selected_device = next(
+            (
+                device
+                for device in devices
+                if device[0] == payload.tipo_dispositivo
+            ),
+            None,
+        )
+        if selected_device is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Não há dispositivo {payload.tipo_dispositivo} OpenCL disponível",
+            )
+        if payload.num_workers > selected_device[3]:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"A quantidade de workers excede o limite "
+                    f"({selected_device[3]}) do dispositivo "
+                    f"{payload.tipo_dispositivo} OpenCL"
+                ),
+            )
+
     try:
         execution = create_execution(
             db,
@@ -76,6 +154,7 @@ def create_analysis(
             model_id=payload.id_modelo,
             mode=payload.modo_execucao,
             workers=payload.num_workers,
+            device_type=payload.tipo_dispositivo,
             chunk_size=payload.tamanho_chunk,
             threshold=payload.limiar_decisao,
         )
@@ -129,8 +208,30 @@ def get_analysis(
     current_user: UsuarioModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    execution = _owned_execution(db, execution_id, current_user.id_usuario)
-    return _execution_response(db, execution)
+    row = (
+        db.query(
+            ExecucaoAnaliseModel,
+            DatasetModel.nome,
+            ModeloDeteccaoModel.nome,
+            DatasetModel.total_registros,
+        )
+        .join(DatasetModel, DatasetModel.id_dataset == ExecucaoAnaliseModel.id_dataset)
+        .join(
+            ModeloDeteccaoModel,
+            ModeloDeteccaoModel.id_modelo == ExecucaoAnaliseModel.id_modelo,
+        )
+        .filter(
+            ExecucaoAnaliseModel.id_execucao == execution_id,
+            ExecucaoAnaliseModel.id_usuario == current_user.id_usuario,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Execução não encontrada")
+    execution, dataset_name, model_name, dataset_total = row
+    return _execution_response(
+        db, execution, dataset_name, model_name, dataset_total
+    )
 
 
 @analyses_router.post(
@@ -138,7 +239,7 @@ def get_analysis(
 )
 def cancel_analysis(
     execution_id: int,
-    current_user: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
 ):
     execution = _owned_execution(db, execution_id, current_user.id_usuario)
@@ -152,6 +253,40 @@ def cancel_analysis(
         )
     execution.status = StatusExecucao.CANCELADA
     execution.finalizada_em = datetime.now(UTC)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@analyses_router.delete(
+    "/{execution_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_analysis(
+    execution_id: int,
+    current_user: UsuarioModel = Depends(require_write_access),
+    db: Session = Depends(get_db),
+):
+    execution = _owned_execution(db, execution_id, current_user.id_usuario)
+    if execution.status in (
+        StatusExecucao.PENDENTE,
+        StatusExecucao.EM_ANDAMENTO,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Uma execução em andamento não pode ser excluída",
+        )
+
+    benchmark_ids = [
+        row[0]
+        for row in db.query(BenchmarkExecucaoModel.id_benchmark)
+        .filter(BenchmarkExecucaoModel.id_execucao == execution_id)
+        .all()
+    ]
+    if benchmark_ids:
+        db.query(BenchmarkModel).filter(
+            BenchmarkModel.id_benchmark.in_(benchmark_ids)
+        ).delete(synchronize_session=False)
+
+    db.delete(execution)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -453,18 +588,22 @@ def _execution_response(
     dataset_total: int | None = None,
 ) -> ExecucaoRespostaSchema:
     if dataset_name is None or model_name is None or dataset_total is None:
-        dataset_data = (
-            db.query(DatasetModel.nome, DatasetModel.total_registros)
-            .filter_by(id_dataset=execution.id_dataset)
+        metadata = (
+            db.query(
+                DatasetModel.nome,
+                ModeloDeteccaoModel.nome,
+                DatasetModel.total_registros,
+            )
+            .join(
+                ModeloDeteccaoModel,
+                ModeloDeteccaoModel.id_modelo == execution.id_modelo,
+            )
+            .filter(DatasetModel.id_dataset == execution.id_dataset)
             .first()
         )
-        dataset_name = dataset_data[0] if dataset_data is not None else None
-        dataset_total = dataset_data[1] if dataset_data is not None else 0
-        model_name = (
-            db.query(ModeloDeteccaoModel.nome)
-            .filter_by(id_modelo=execution.id_modelo)
-            .scalar()
-        )
+        dataset_name = metadata[0] if metadata is not None else None
+        model_name = metadata[1] if metadata is not None else None
+        dataset_total = metadata[2] if metadata is not None else 0
     progress = (
         100
         if execution.status == StatusExecucao.CONCLUIDA
@@ -478,6 +617,7 @@ def _execution_response(
         modelo_nome=model_name,
         modo_execucao=execution.modo_execucao,
         num_workers=execution.num_workers,
+        tipo_dispositivo=execution.tipo_dispositivo,
         tamanho_chunk=execution.tamanho_chunk,
         limiar_aplicado=execution.limiar_aplicado,
         status=execution.status,
@@ -486,6 +626,7 @@ def _execution_response(
         finalizada_em=execution.finalizada_em,
         tempo_total_s=execution.tempo_total_s,
         total_analisadas=execution.total_analisadas,
+        total_registros=dataset_total or 0,
         total_suspeitas=execution.total_suspeitas,
         mensagem_erro=execution.mensagem_erro,
         criado_em=execution.criado_em,

@@ -15,14 +15,22 @@ from src.fraud_detector.api.schemas.benchmark import (
     CriarBenchmarkSchema,
 )
 from src.fraud_detector.api.routes import analyses as analysis_routes
+from src.fraud_detector.api.routes.analyses import analyses_router
+from src.fraud_detector.api.routes.auth import auth_router
+from src.fraud_detector.api.routes.benchmarks import benchmarks_router
+from src.fraud_detector.api.routes.datasets import datasets_router
+from src.fraud_detector.api.routes.transactions import transactions_router
+from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.application import analysis_service
 from src.fraud_detector.api.routes.benchmarks import _render_benchmark_pdf
 from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
 from src.fraud_detector.domain.enums.benchmark_role import PapelBenchmark
+from src.fraud_detector.domain.enums.user_roles import PapelUsuario
 from src.fraud_detector.infrastructure.database.database import Base
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 from src.fraud_detector.main import app
+from fastapi import HTTPException
 
 
 def test_transaction_frame_restores_model_features_from_persisted_columns():
@@ -80,7 +88,21 @@ def test_executor_uses_supported_model_hyperparameters(
 
     analysis_service._create_executor(parameters)
 
-    assert captured == expected
+    assert captured == {**expected, "device_type": None}
+
+
+def test_executor_receives_selected_opencl_device(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    class FakeExecutor:
+        def __init__(self, **kwargs: object):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(analysis_service, "OpenCLIsolationForestExecutor", FakeExecutor)
+
+    analysis_service._create_executor({}, opencl_device_type="CPU")
+
+    assert captured["device_type"] == "CPU"
 
 
 @pytest.mark.parametrize(
@@ -106,6 +128,7 @@ def test_analysis_api_request_keeps_frontend_field_names_and_validates_workers()
         id_modelo=1,
         modo_execucao=ModoExecucao.PARALELO,
         num_workers=8,
+        tipo_dispositivo="GPU",
         tamanho_chunk=256,
         limiar_decisao=Decimal("0.35"),
     )
@@ -115,6 +138,7 @@ def test_analysis_api_request_keeps_frontend_field_names_and_validates_workers()
         "id_modelo": 1,
         "modo_execucao": ModoExecucao.PARALELO,
         "num_workers": 8,
+        "tipo_dispositivo": "GPU",
         "tamanho_chunk": 256,
         "limiar_decisao": Decimal("0.35"),
     }
@@ -125,6 +149,72 @@ def test_analysis_api_request_keeps_frontend_field_names_and_validates_workers()
             modo_execucao=ModoExecucao.PARALELO,
             num_workers=129,
         )
+    with pytest.raises(ValueError):
+        CriarExecucaoSchema(
+            id_dataset=1,
+            id_modelo=1,
+            modo_execucao=ModoExecucao.PARALELO,
+            num_workers=6,
+            tamanho_chunk=0,
+        )
+
+
+@pytest.mark.parametrize(
+    "role",
+    [PapelUsuario.ADMIN, PapelUsuario.ANALISTA],
+)
+def test_write_access_allows_admin_and_analyst(role: PapelUsuario):
+    user = SimpleNamespace(papel=role)
+
+    assert require_write_access(user) is user
+
+
+def test_write_access_rejects_viewer():
+    user = SimpleNamespace(papel=PapelUsuario.VISUALIZADOR)
+
+    with pytest.raises(HTTPException) as error:
+        require_write_access(user)
+
+    assert error.value.status_code == 403
+
+
+def test_all_mutating_api_routes_require_write_access():
+    expected = {
+        ("PATCH", "/auth/me"),
+        ("POST", "/datasets/importacoes"),
+        ("POST", "/datasets/importacoes/{import_id}/cancelar"),
+        ("POST", "/datasets/importacoes/{import_id}/arquivo"),
+        ("POST", "/datasets"),
+        ("DELETE", "/datasets/{dataset_id}"),
+        ("POST", "/analises"),
+        ("POST", "/analises/{execution_id}/cancelar"),
+        ("DELETE", "/analises/{execution_id}"),
+        ("POST", "/benchmarks"),
+        ("POST", "/benchmarks/{benchmark_id}/cancelar"),
+        ("POST", "/transactions"),
+        ("PATCH", "/transactions/{id_transacao}"),
+        ("DELETE", "/transactions/{id_transacao}"),
+    }
+    routes = {
+        (method, route.path): route
+        for router in (
+            auth_router,
+            datasets_router,
+            analyses_router,
+            benchmarks_router,
+            transactions_router,
+        )
+        for route in router.routes
+        if hasattr(route, "dependant")
+        for method in route.methods or set()
+    }
+
+    for method, path in expected:
+        route = routes[(method, path)]
+        assert any(
+            dependency.call is require_write_access
+            for dependency in route.dependant.dependencies
+        ), f"{method} {path} must require write access"
 
 
 def test_benchmark_api_accepts_frontend_configuration_shape():
@@ -141,6 +231,7 @@ def test_benchmark_api_accepts_frontend_configuration_shape():
                 {
                     "modo_execucao": "PARALELO",
                     "num_workers": 8,
+                    "tipo_dispositivo": "CPU",
                     "rotulo": "Paralelo (8 workers)",
                 },
             ],
@@ -148,17 +239,27 @@ def test_benchmark_api_accepts_frontend_configuration_shape():
     )
 
     assert len(payload.configuracoes) == 2
+    assert payload.configuracoes[1].tipo_dispositivo == "CPU"
     openapi = app.openapi()
     paths = openapi["paths"]
     assert paths["/analises"]["post"]["responses"]["202"]
     assert "/analises/{execution_id}" in paths
+    assert paths["/analises/{execution_id}"]["delete"]["responses"]["204"]
     assert "/analises/{execution_id}/cancelar" in paths
     assert "/analises/{execution_id}/resultados" in paths
     assert "/analises/{execution_id}/resultados/{transaction_id}" in paths
     assert "/analises/{execution_id}/resultados/exportar" in paths
+    assert "/benchmarks/capacidades" in paths
+    assert "/analises/capacidades" in paths
     assert "/benchmarks/{benchmark_id}" in paths
     assert "/benchmarks/{benchmark_id}/exportar" in paths
     assert "/modelos" in paths
+    execution_schema_ref = paths["/analises/{execution_id}"]["get"]["responses"]["200"][
+        "content"
+    ]["application/json"]["schema"]["$ref"]
+    execution_schema_name = execution_schema_ref.rsplit("/", maxsplit=1)[-1]
+    execution_schema = openapi["components"]["schemas"][execution_schema_name]
+    assert "total_registros" in execution_schema["properties"]
     assert {
         "modelo_deteccao",
         "execucao_analise",
@@ -167,6 +268,25 @@ def test_benchmark_api_accepts_frontend_configuration_shape():
         "benchmark",
         "benchmark_execucao",
     }.issubset(Base.metadata.tables)
+
+
+def test_benchmark_api_accepts_sequential_only_configuration():
+    payload = CriarBenchmarkSchema.model_validate(
+        {
+            "id_dataset": 2,
+            "id_modelo": 1,
+            "configuracoes": [
+                {
+                    "modo_execucao": "SEQUENCIAL",
+                    "num_workers": 1,
+                    "rotulo": "Sequencial (Baseline)",
+                }
+            ],
+        }
+    )
+
+    assert len(payload.configuracoes) == 1
+    assert payload.configuracoes[0].modo_execucao == ModoExecucao.SEQUENCIAL
 
 
 def test_metrics_response_can_be_built_from_persisted_orm_attributes():

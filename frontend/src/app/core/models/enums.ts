@@ -1,0 +1,30 @@
+export enum PapelUsuario {
+  ADMIN = 'ADMIN',
+  ANALISTA = 'ANALISTA',
+  VISUALIZADOR = 'VISUALIZADOR',
+}
+
+export enum ModoExecucao {
+  SEQUENCIAL = 'SEQUENCIAL',
+  PARALELO = 'PARALELO',
+}
+
+export enum StatusExecucao {
+  PENDENTE = 'PENDENTE',
+  EM_ANDAMENTO = 'EM_ANDAMENTO',
+  CONCLUIDA = 'CONCLUIDA',
+  FALHA = 'FALHA',
+  CANCELADA = 'CANCELADA',
+}
+
+export enum TipoAlgoritmo {
+  ISOLATION_FOREST = 'ISOLATION_FOREST',
+  LOGISTIC_REGRESSION = 'LOGISTIC_REGRESSION',
+  XGBOOST = 'XGBOOST',
+  AUTOENCODER = 'AUTOENCODER',
+}
+
+export enum PapelBenchmark {
+  BASELINE = 'BASELINE',
+  COMPARACAO = 'COMPARACAO',
+}
