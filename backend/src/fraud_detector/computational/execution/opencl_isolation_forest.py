@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import log
 from time import perf_counter
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 import numpy as np
 import pyopencl as cl
@@ -125,7 +125,7 @@ class OpenCLIsolationForestExecutor:
         self,
         *,
         n_estimators: int = 200,
-        contamination: float = 0.0017,
+        contamination: float | Literal["auto"] = 0.0017,
         random_state: int = 42,
     ):
         self._model = IsolationForest(
