@@ -128,23 +128,22 @@ flowchart TB
 
 1. O analista envia o arquivo CSV via `POST /datasets` (UC01). O `DatasetService` calcula o hash SHA-256 do arquivo, grava o artefato em disco e persiste os metadados na tabela `dataset`.
 2. O `DataValidator` verifica a presença e a tipagem das colunas mínimas obrigatórias (RF02). Inconsistências geram erro de contrato HTTP 422 sem interromper a aplicação (RNF de Confiabilidade).
-3. O analista dispara `POST /analises` informando `dataset_id`, `modelo_id`, `modo_execucao` e `num_workers` (UC02, RF11). A API cria um registro em `execucao_analise` com status `PENDENTE`, retorna imediatamente `202 Accepted` e delega o processamento a uma `BackgroundTask`.
-4. O `Preprocessor` executa limpeza, tratamento de nulos e normalização (`StandardScaler` sobre `Amount` e `Time`), produzindo uma matriz NumPy contígua (RF03).
-5. O `ChunkSplitter` particiona a matriz em blocos independentes de tamanho configurável (UC03).
-6. A `ExecutionStrategy` selecionada executa a inferência:
-   - **`SequentialExecutor`**: itera os blocos em um único processo — constitui o *baseline* (PB09).
-   - **`OpenCLExecutor`**: envia os arrays contíguos e os parâmetros do modelo para um dispositivo OpenCL. Os work-items pontuam transações em paralelo, e o host reagrega os blocos pela ordem original (PB10).
-7. Os escores retornados são reagregados **na ordem original dos índices**, garantindo o RNF de Paralelização ("a paralelização não deverá alterar o resultado final da classificação"). Essa equivalência será verificada por teste automatizado comparando os vetores de saída sequencial e paralelo.
-8. O limiar de decisão é aplicado, as transações são rotuladas (RF06) e persistidas em `resultado_deteccao`.
-9. O `MetricsCollector` grava tempo total, tempo por etapa, uso de CPU e memória em `metrica_execucao` (RF08, PB13).
-10. O status da execução passa a `CONCLUIDA` e os resultados ficam disponíveis via `GET /analises/{id}/resultados` (UC05).
+3. O analista dispara `POST /analises` com `id_dataset`, `id_modelo`, `modo_execucao`, `num_workers` e, opcionalmente, `tamanho_chunk` e `limiar_decisao`. A API verifica a propriedade do dataset, persiste `PENDENTE`, responde `202 Accepted` e agenda a análise numa `BackgroundTask`.
+4. A aplicação lê as transações em ordem de origem, reconstrói `Time` e `Amount` a partir das colunas normalizadas e aplica o `Preprocessor` (imputação mediana, exclusão de rótulos/identificadores e escala), produzindo uma matriz NumPy contígua.
+5. O Isolation Forest é ajustado no host com `n_jobs=1`; depois a matriz é pontuada em blocos, usando o mesmo modelo ajustado para os dois modos.
+6. Em modo `SEQUENCIAL`, o score vem do scikit-learn. Em modo `PARALELO`, cada bloco é pontuado pelo kernel PyOpenCL. `num_workers` é preservado no contrato do frontend e usado como tamanho de work-group OpenCL (não representa processos de CPU).
+7. O limiar aplicado transforma escores em rótulos e os resultados de cada bloco são persistidos em `resultado_deteccao`; o status, contagens e progresso são atualizados por bloco. Cancelamentos são cooperativos entre blocos.
+8. Tempos de leitura, pré-processamento, inferência e overhead, CPU do processo, pico amostrado de memória, throughput e núcleos disponíveis são registrados em `metrica_execucao`.
+9. Resultados ficam disponíveis por `GET /analises/{id}/resultados`, paginados e ordenados por escore, com filtros por escore/valor. CSV e JSON estão disponíveis para exportação (UC05).
 
 ### 1.5 Integração com o componente computacional avançado
 
-O componente avançado é o **pipeline de processamento paralelo com OpenCL**. Sua integração com o software ocorre pelo **padrão Strategy**: a camada de aplicação depende da abstração `ExecutionStrategy`, jamais de uma implementação concreta.
+O componente avançado é o **pipeline de processamento paralelo com OpenCL**, implementado por `OpenCLIsolationForestExecutor`. A aplicação chama esse executor explicitamente para ajuste no host e pontuação OpenCL/sequencial do mesmo modelo.
 
 ```python
-resultado = self.execution_strategy.execute(matriz, detector)
+executor.fit(matriz)
+scores_opencl = executor.score_opencl(bloco, work_group_size=num_workers)
+scores_referencia = executor.score_sequential(bloco)
 ```
 
 Essa decisão traz três consequências práticas:
@@ -946,7 +945,7 @@ Cabeçalho com resumo (total analisado, total suspeito, taxa de suspeição, tem
 Exibe todos os atributos da transação, o escore atribuído, o limiar aplicado e o histórico de avaliações da mesma transação em execuções anteriores — recurso que **demonstra visualmente a equivalência entre os modos sequencial e paralelo**, um dos RNFs da Sprint 01.
 
 **T09 — Benchmark** *(UC06, RF09)*
-Seleção do dataset e das configurações a comparar (por exemplo: sequencial, e paralelo com 2, 4, 6, 8 e 12 workers), com botão para executar a bateria completa.
+Seleção do dataset e das configurações a comparar (baseline sequencial e work-groups OpenCL de tamanhos selecionados), com botão para executar a bateria completa. O endpoint executa a bateria antes de responder; por isso, a chamada pode levar o tempo total das configurações selecionadas.
 
 **T10 — Relatório Comparativo** *(UC07, PB12)*
 Gráfico de linhas com tempo de execução por número de workers, gráfico de speedup contra a curva de speedup linear ideal, gráfico de eficiência e tabela numérica consolidada. Exportação do relatório.
@@ -977,7 +976,7 @@ Lista de todas as execuções com dataset, modelo, modo, workers, status, tempo 
 Conforme o RNF de Usabilidade da Sprint 01, o usuário deve ser capaz de disparar análises sem alterar configurações internas do código. Por isso:
 
 - Todo parâmetro operacional relevante (workers, bloco, limiar, modelo) é exposto na T05.
-- O número máximo de workers é limitado pelo valor real retornado por `os.cpu_count()`, impedindo configurações que degradariam o desempenho por sobrecarga de contexto.
+- No modo OpenCL, `num_workers` representa o tamanho do work-group e deve respeitar o limite do dispositivo; não são processos CPU nem há garantia de speedup.
 - Erros de execução paralela são apresentados ao usuário com a mensagem e o bloco de origem, atendendo ao RNF de Confiabilidade.
 
 ---
@@ -1014,6 +1013,26 @@ Foram criadas duas visões que sustentam diretamente telas do protótipo:
 
 - **`vw_resumo_execucao`** — consolida execução, dataset, modelo e métricas em uma única linha; alimenta as telas T07 e T11.
 - **`vw_comparativo_benchmark`** — calcula speedup e eficiência em relação ao baseline de cada benchmark; alimenta a tela T10.
+
+### 6.4 API de análises, resultados e benchmarks
+
+As rotas autenticadas são:
+
+| Método e rota | Uso |
+|---|---|
+| `GET /modelos` | Lista os modelos Isolation Forest disponíveis para a interface. |
+| `POST /analises` | Cria uma execução e retorna `202`; o processamento roda como tarefa local da API. |
+| `GET /analises` | Lista histórico do usuário, filtrável por `status` e `modo_execucao`. |
+| `GET /analises/{id}` | Consulta estado, progresso, totais e tempos da execução. |
+| `POST /analises/{id}/cancelar` | Solicita cancelamento, efetivado entre blocos. |
+| `GET /analises/{id}/resultados` | Consulta resultados paginados, com `escore_minimo` e `valor_minimo`. |
+| `GET /analises/{id}/resultados/{id_transacao}` | Consulta transação, resultado atual e histórico de avaliações do usuário para o mesmo modelo/dataset. |
+| `GET /analises/{id}/resultados/exportar?formato=csv\|json` | Exporta os resultados persistidos. |
+| `POST /benchmarks` | Executa e persiste uma bateria com um baseline sequencial e configurações OpenCL. |
+| `GET /benchmarks/{id}` | Consulta as execuções e métricas comparadas. |
+| `GET /benchmarks/{id}/exportar` | Gera o relatório PDF. |
+
+O benchmark compara tempos observados: `speedup = tempo_baseline / tempo_configuração` e `eficiência = speedup / tamanho_do_work_group`. Como o paralelismo é OpenCL, essa eficiência não é utilização de núcleos CPU e nenhum ganho é garantido. CPU é a utilização amostrada do processo da API, memória é o pico de RSS observado durante a amostragem, e a execução em `BackgroundTasks` não é uma fila persistente distribuída.
 
 ---
 
