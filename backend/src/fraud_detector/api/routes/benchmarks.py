@@ -51,9 +51,7 @@ benchmarks_router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
 logger = logging.getLogger(__name__)
 
 
-@benchmarks_router.get(
-    "/capacidades", response_model=OpenCLCapabilitiesSchema
-)
+@benchmarks_router.get("/capacidades", response_model=OpenCLCapabilitiesSchema)
 def get_benchmark_capabilities(
     _: UsuarioModel = Depends(get_current_user),
 ):
@@ -199,7 +197,9 @@ def run_benchmark_in_background(
 ) -> None:
     db = SessionLocal()
     try:
-        benchmark = db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
+        benchmark = (
+            db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
+        )
         if benchmark is None:
             return
         db.query(BenchmarkModel).filter(
@@ -214,10 +214,18 @@ def run_benchmark_in_background(
             return
 
         baseline_seconds: Decimal | None = None
-        configurations = [BenchmarkConfiguracaoSchema.model_validate(item) for item in configs]
-        ordered_configs = [item for item in configurations if item.modo_execucao == ModoExecucao.SEQUENCIAL]
+        configurations = [
+            BenchmarkConfiguracaoSchema.model_validate(item) for item in configs
+        ]
+        ordered_configs = [
+            item
+            for item in configurations
+            if item.modo_execucao == ModoExecucao.SEQUENCIAL
+        ]
         ordered_configs.extend(
-            item for item in configurations if item.modo_execucao == ModoExecucao.PARALELO
+            item
+            for item in configurations
+            if item.modo_execucao == ModoExecucao.PARALELO
         )
 
         for config in ordered_configs:
@@ -284,12 +292,17 @@ def run_benchmark_in_background(
                 return
             if execution.status == StatusExecucao.FALHA:
                 benchmark.status = "FALHA"
-                benchmark.mensagem_erro = execution.mensagem_erro or "Uma configuração do benchmark falhou."
+                benchmark.mensagem_erro = (
+                    execution.mensagem_erro or "Uma configuração do benchmark falhou."
+                )
                 db.commit()
                 return
 
             elapsed = execution.tempo_total_s
-            if role == PapelBenchmark.BASELINE and execution.status == StatusExecucao.CONCLUIDA:
+            if (
+                role == PapelBenchmark.BASELINE
+                and execution.status == StatusExecucao.CONCLUIDA
+            ):
                 baseline_seconds = elapsed
                 association.speedup = Decimal("1")
                 association.eficiencia = Decimal("1")
@@ -327,7 +340,9 @@ def run_benchmark_in_background(
     except Exception as error:
         db.rollback()
         logger.exception("Falha ao executar benchmark %s", benchmark_id)
-        benchmark = db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
+        benchmark = (
+            db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
+        )
         if benchmark is not None:
             if benchmark.status == "CANCELAMENTO_SOLICITADO":
                 benchmark.status = "CANCELADO"
@@ -349,7 +364,9 @@ def get_benchmark(
     return _benchmark_response(db, benchmark)
 
 
-@benchmarks_router.post("/{benchmark_id}/cancelar", response_model=BenchmarkRespostaSchema)
+@benchmarks_router.post(
+    "/{benchmark_id}/cancelar", response_model=BenchmarkRespostaSchema
+)
 def cancel_benchmark(
     benchmark_id: int,
     current_user: UsuarioModel = Depends(require_write_access),
@@ -475,12 +492,9 @@ def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
 def _owned_benchmark(
     db: Session, benchmark_id: int, owner_id: int, *, for_update: bool = False
 ):
-    query = (
-        db.query(BenchmarkModel)
-        .filter(
-            BenchmarkModel.id_benchmark == benchmark_id,
-            BenchmarkModel.id_usuario == owner_id,
-        )
+    query = db.query(BenchmarkModel).filter(
+        BenchmarkModel.id_benchmark == benchmark_id,
+        BenchmarkModel.id_usuario == owner_id,
     )
     if for_update:
         query = query.with_for_update()

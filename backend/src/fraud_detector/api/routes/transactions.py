@@ -41,7 +41,9 @@ def create_transaction(
             transaction_data, current_user.id_usuario
         )
     except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
+        ) from error
 
 
 @transactions_router.get("", response_model=list[TransacaoRespostaSchema])

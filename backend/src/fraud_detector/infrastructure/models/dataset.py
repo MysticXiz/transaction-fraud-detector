@@ -17,9 +17,7 @@ from src.fraud_detector.infrastructure.database.database import Base
 class DatasetModel(Base):
     __tablename__ = "dataset"
     __table_args__ = (
-        UniqueConstraint(
-            "id_usuario", "hash_arquivo", name="uk_dataset_usuario_hash"
-        ),
+        UniqueConstraint("id_usuario", "hash_arquivo", name="uk_dataset_usuario_hash"),
     )
 
     id_dataset: Mapped[int] = mapped_column(Integer, primary_key=True)

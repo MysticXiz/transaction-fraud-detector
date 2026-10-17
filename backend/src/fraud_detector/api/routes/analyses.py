@@ -68,9 +68,7 @@ analyses_router = APIRouter(prefix="/analises", tags=["Análises"])
 models_router = APIRouter(prefix="/modelos", tags=["Modelos"])
 
 
-@analyses_router.get(
-    "/capacidades", response_model=OpenCLCapabilitiesSchema
-)
+@analyses_router.get("/capacidades", response_model=OpenCLCapabilitiesSchema)
 def get_analysis_capabilities(
     _: UsuarioModel = Depends(get_current_user),
 ):
@@ -124,11 +122,7 @@ def create_analysis(
                 detail=f"Dispositivo OpenCL indisponível: {error}",
             ) from error
         selected_device = next(
-            (
-                device
-                for device in devices
-                if device[0] == payload.tipo_dispositivo
-            ),
+            (device for device in devices if device[0] == payload.tipo_dispositivo),
             None,
         )
         if selected_device is None:
@@ -229,9 +223,7 @@ def get_analysis(
     if row is None:
         raise HTTPException(status_code=404, detail="Execução não encontrada")
     execution, dataset_name, model_name, dataset_total = row
-    return _execution_response(
-        db, execution, dataset_name, model_name, dataset_total
-    )
+    return _execution_response(db, execution, dataset_name, model_name, dataset_total)
 
 
 @analyses_router.post(
@@ -257,9 +249,7 @@ def cancel_analysis(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@analyses_router.delete(
-    "/{execution_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@analyses_router.delete("/{execution_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_analysis(
     execution_id: int,
     current_user: UsuarioModel = Depends(require_write_access),
@@ -341,9 +331,11 @@ def get_analysis_results(
     metric = db.query(MetricaExecucaoModel).filter_by(id_execucao=execution_id).first()
     return ResultadosPaginaSchema(
         execucao=_execution_response(db, execution),
-        metrica=MetricaRespostaSchema.model_validate(metric)
-        if metric is not None
-        else MetricaRespostaSchema(),
+        metrica=(
+            MetricaRespostaSchema.model_validate(metric)
+            if metric is not None
+            else MetricaRespostaSchema()
+        ),
         itens=[
             ResultadoRespostaSchema(
                 id_resultado=item.id_resultado,
@@ -494,9 +486,11 @@ def _result_export_record(
         "limiar_aplicado": float(result.limiar_aplicado),
         "chunk_id": result.chunk_id,
         "valor": float(transaction.valor) if transaction.valor is not None else None,
-        "tempo_relativo": float(transaction.tempo_relativo)
-        if transaction.tempo_relativo is not None
-        else None,
+        "tempo_relativo": (
+            float(transaction.tempo_relativo)
+            if transaction.tempo_relativo is not None
+            else None
+        ),
         "rotulo_real": transaction.rotulo_real,
         "atributos": transaction.atributos,
     }
