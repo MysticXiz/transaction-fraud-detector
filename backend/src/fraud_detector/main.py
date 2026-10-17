@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.fraud_detector.infrastructure import models  # noqa: F401
 from src.fraud_detector.api.routes.auth import auth_router
 from src.fraud_detector.api.routes.datasets import datasets_router
+from src.fraud_detector.api.routes.analyses import analyses_router, models_router
+from src.fraud_detector.api.routes.benchmarks import benchmarks_router
 from src.fraud_detector.api.routes.transactions import transactions_router
 
 logging.getLogger("fraud_detector").setLevel(logging.INFO)
@@ -42,7 +44,14 @@ async def read_root():
 
 
 # Manter os routers em uma lista deixa explícito quais módulos estão publicados no bootstrap.
-routes = [auth_router, transactions_router, datasets_router]
+routes = [
+    auth_router,
+    transactions_router,
+    datasets_router,
+    analyses_router,
+    benchmarks_router,
+    models_router,
+]
 
 for route in routes:
     app.include_router(route)
