@@ -116,24 +116,80 @@ Não foram anexadas capturas de tela nesta execução; não foram substituídas 
 
 ## 7. Mudanças separadas por branch
 
-| Branch | Mudanças desta Sprint |
+As funcionalidades apresentadas foram construídas incrementalmente em várias branches e integradas a `develop`. Portanto, o histórico não se limita à branch que consolidou a interface. A tabela abaixo identifica a origem de cada conjunto de mudanças:
+
+| Branch de origem | Principais mudanças incorporadas |
 |---|---|
-| `feature/frontend-integracao` | Implementação integrada do módulo analítico, seleção OpenCL, benchmarks e acompanhamento/cancelamento de processos; reforço de permissões e isolamento por usuário; ajustes de interface, navegação e testes. Também recebeu a correção de formatação exigida pela CI. |
-| `develop` | Recebeu a integração da branch de implementação e, depois, a integração da correção de formatação. Não foram feitas alterações funcionais distintas diretamente em `develop` nesta entrega. |
+| `feature/datasets-ingestao` | Gestão e ingestão de datasets, validação de CSV, persistência e testes de ingestão — base de dados consumida pelo terceiro módulo. |
+| `feature/preprocessamento-deteccao` | Pré-processamento das transações e preparação das features para a análise. |
+| `feature/execucao-paralela` | Executor Isolation Forest e execução OpenCL, com cobertura automatizada. |
+| `feature/resultados-metricas` | Persistência de execuções, resultados, métricas e benchmarks. |
+| `feature/testes-documentacao` | Branch de integração/documentação que recebeu o merge dos resultados e métricas; o histórico alcançável não mostra um commit de implementação exclusivo adicional além dos commits listados para os módulos. |
+| `feature/frontend-integracao` | Interface integrada e fluxos de autenticação, análise, benchmark e acompanhamento de tarefas; nesta entrega recebeu também isolamento por usuário e a correção Black. |
+| `develop` | Integração das branches funcionais, correção de CI e publicação deste relatório. |
 
-As branches `feature/resultados-metricas` e `feature/testes-documentacao` já continham trabalho anterior integrado à base de `develop`; não receberam alterações específicas nesta Sprint.
+## 8. Histórico de commits por branch
 
-## 8. Histórico dos commits de implementação e integração desta Sprint
+Esta relação registra os commits relevantes que compõem a entrega integrada (incluindo o trabalho de módulos anteriores que é consumido pelo terceiro módulo) e os merges que os levaram a `develop`. Os hashes curtos podem ser usados para localizar cada commit no GitHub.
 
-| Commit | Branch | Descrição |
+### 8.1 `feature/datasets-ingestao`
+
+| Commit | Descrição |
+|---|---|
+| `4a90253` | feat: otimiza ingestao e exclusao de datasets |
+| `eb23340` | chore: restaura configuracoes da ingestao |
+| `9abbbce` | fix: corrige ingestao de datasets |
+| `d640eb3` | feat: otimiza ingestao e exclusao de datasets |
+| `676c432` | Merge da branch `feature/datasets-ingestao` em `feature/frontend-integracao` |
+
+### 8.2 Branch de pré-processamento (`feature/preprocessamento-deteccao`)
+
+| Commit | Descrição |
+|---|---|
+| `fe21d12` | feat(preprocessing): add transaction data preprocessor |
+| `8368563` | Merge preprocessing feature |
+
+### 8.3 `feature/execucao-paralela`
+
+| Commit | Descrição |
+|---|---|
+| `3979813` | feat(execution): add OpenCL Isolation Forest scoring |
+| `de46d93` | Merge pull request #4 from MysticXiz/feature/execucao-paralela |
+
+### 8.4 `feature/resultados-metricas` e `feature/testes-documentacao`
+
+| Commit | Branch/integração | Descrição |
 |---|---|---|
-| `d7130e1` | `feature/frontend-integracao` | Implementa processamento e isolamento por usuário |
-| `700d52b` | `feature/frontend-integracao` | Aplica formatação Black exigida pela CI |
-| `c311cf6` | `develop` | Merge feature/frontend-integracao into develop |
-| `bce4f3f` | `develop` | Merge correção de formatação CI em develop |
+| `4aad2fd` | histórico de `feature/testes-documentacao` | ci: adiciona pipelone de CI com Github Actions |
+| `55773c5` | `feature/resultados-metricas` | feat(results): persist analyses metrics and benchmarks |
+| `899ad63` | `feature/testes-documentacao` / integração | merge: integrate results and metrics |
 
-O repositório completo, com os commits e branches publicados, está em https://github.com/MysticXiz/transaction-fraud-detector.
-O commit que versiona este documento também está registrado no histórico da branch `develop`.
+### 8.5 `feature/frontend-integracao`
+
+| Commit | Descrição |
+|---|---|
+| `a04aa8f` | feat: implementa frontend da Sprint 04 |
+| `08c9678` | fix: validate auth via HttpOnly cookie backend |
+| `dc61109` | feat: move frontend auth to cookie-based sessions |
+| `5051d12` | feat(frontend): aprimora conta e controles de interface |
+| `48d6867` | chore: add environment variables and ignore .env file |
+| `0996962` | chore: ignore .env file |
+| `ed10670` | feat: atualiza frontend |
+| `aa14ee9` | Excluir .env |
+| `d7130e1` | Implementa processamento e isolamento por usuário |
+| `700d52b` | Aplica formatação Black exigida pela CI |
+| `7fef577` | Merge de `develop` em `feature/frontend-integracao`, antes da entrega |
+
+### 8.6 `develop` — merges finais e documentação
+
+| Commit | Descrição |
+|---|---|
+| `c311cf6` | Merge feature/frontend-integracao into develop |
+| `bce4f3f` | Merge correção de formatação CI em develop |
+| `eb32644` | Documenta entregas da Sprint 06 |
+| `85e35cf` | Ajusta histórico e próximos passos da Sprint 06 |
+
+Os commits acima são identificados por suas branches de origem e de integração; merges não representam uma segunda implementação do mesmo código, mas registram quando as contribuições foram incorporadas. O repositório completo e o histórico publicado estão em https://github.com/MysticXiz/transaction-fraud-detector.
 
 ## 9. Dificuldades encontradas e próximos passos
 
