@@ -221,9 +221,7 @@ def _run_execution(
             model = _validate_supported_model(model)
             executor = _create_executor(
                 model.hiperparametros or {},
-                opencl_device_type=(
-                    opencl_device_type or execution.tipo_dispositivo
-                ),
+                opencl_device_type=(opencl_device_type or execution.tipo_dispositivo),
             )
 
             inference_started = perf_counter()

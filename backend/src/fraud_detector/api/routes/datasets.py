@@ -75,9 +75,7 @@ def create_dataset_import(
     return _import_job_response(job)
 
 
-@datasets_router.get(
-    "/importacoes/{import_id}", response_model=DatasetImportJobSchema
-)
+@datasets_router.get("/importacoes/{import_id}", response_model=DatasetImportJobSchema)
 def get_dataset_import(
     import_id: int,
     current_user: UsuarioModel = Depends(get_current_user),
@@ -162,7 +160,9 @@ def upload_dataset_import(
         return dataset
     except DatasetImportCancelledError as error:
         _set_import_job_status(import_id, "CANCELADO", str(error))
-        raise HTTPException(status_code=409, detail="A importação foi cancelada") from error
+        raise HTTPException(
+            status_code=409, detail="A importação foi cancelada"
+        ) from error
     except DatasetTooLargeError as error:
         _set_import_job_status(import_id, "FALHA", str(error))
         raise HTTPException(
@@ -179,7 +179,9 @@ def upload_dataset_import(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
     except IntegrityError as error:
-        _set_import_job_status(import_id, "FALHA", "Conflito de integridade ao persistir o dataset")
+        _set_import_job_status(
+            import_id, "FALHA", "Conflito de integridade ao persistir o dataset"
+        )
         constraint_name = getattr(
             getattr(error.orig, "diag", None), "constraint_name", None
         )
@@ -205,7 +207,9 @@ def upload_dataset_import(
     except Exception as error:
         _set_import_job_status(import_id, "FALHA", "Falha inesperada na importação")
         logger.exception("Falha inesperada na importação %s", import_id)
-        raise HTTPException(status_code=500, detail="Falha inesperada na importação") from error
+        raise HTTPException(
+            status_code=500, detail="Falha inesperada na importação"
+        ) from error
 
 
 @datasets_router.post(
@@ -387,9 +391,9 @@ def _import_cancellation_checker(import_id: int):
                 logger.error("Estado da importação %s não encontrado", import_id)
                 cached_cancelled = True
                 return True
-            cached_cancelled = (
-                job.cancelamento_solicitado
-                or job.status in ("CANCELAMENTO_SOLICITADO", "CANCELADO")
+            cached_cancelled = job.cancelamento_solicitado or job.status in (
+                "CANCELAMENTO_SOLICITADO",
+                "CANCELADO",
             )
         return cached_cancelled
 
