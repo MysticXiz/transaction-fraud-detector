@@ -43,15 +43,18 @@ const senhasIguais: ValidatorFn = (control: AbstractControl): ValidationErrors |
             </span>
           </div>
 
+          @if (!canWrite()) {
+            <p class="nota" role="note">O perfil Visualizador tem acesso somente para consulta e não pode alterar os dados da conta.</p>
+          }
           <form [formGroup]="form" (ngSubmit)="salvar()" novalidate>
             <label class="df-label" for="nome">Nome</label>
-            <input id="nome" class="df-input" type="text" formControlName="nome" autocomplete="name" />
+            <input id="nome" class="df-input" type="text" formControlName="nome" autocomplete="name" [readonly]="!canWrite()" />
             @if (form.controls.nome.touched && form.controls.nome.invalid) {
               <small class="validacao validacao-erro">Informe um nome com pelo menos 2 caracteres.</small>
             }
 
             <label class="df-label campo-espaco" for="email">E-mail</label>
-            <input id="email" class="df-input" type="email" formControlName="email" autocomplete="email" />
+            <input id="email" class="df-input" type="email" formControlName="email" autocomplete="email" [readonly]="!canWrite()" />
             @if (form.controls.email.touched) {
               @if (!form.controls.email.value) {
                 <small class="validacao validacao-erro">O e-mail é obrigatório.</small>
@@ -67,13 +70,13 @@ const senhasIguais: ValidatorFn = (control: AbstractControl): ValidationErrors |
             </div>
 
             <label class="df-label campo-espaco" for="senha">Nova senha</label>
-            <input id="senha" class="df-input" type="password" formControlName="senha" autocomplete="new-password" />
+            <input id="senha" class="df-input" type="password" formControlName="senha" autocomplete="new-password" [readonly]="!canWrite()" />
             @if (form.controls.senha.touched && form.controls.senha.value && form.controls.senha.invalid) {
               <small class="validacao validacao-erro">A senha precisa ter no mínimo 8 caracteres.</small>
             }
 
             <label class="df-label campo-espaco" for="confirmarSenha">Confirmar nova senha</label>
-            <input id="confirmarSenha" class="df-input" type="password" formControlName="confirmarSenha" autocomplete="new-password" />
+            <input id="confirmarSenha" class="df-input" type="password" formControlName="confirmarSenha" autocomplete="new-password" [readonly]="!canWrite()" />
             @if (form.controls.confirmarSenha.touched && form.controls.confirmarSenha.value && form.errors?.['senhasDiferentes']) {
               <small class="validacao validacao-erro">As senhas precisam ser iguais.</small>
             }
@@ -92,10 +95,12 @@ const senhasIguais: ValidatorFn = (control: AbstractControl): ValidationErrors |
             }
 
             <div class="acoes">
-              <button class="df-btn df-btn-secundario" type="button" (click)="restaurar()" [disabled]="carregando()">Descartar</button>
-              <button class="df-btn df-btn-primary" type="submit" [disabled]="carregando()">
-                {{ carregando() ? 'Salvando...' : 'Salvar alterações' }}
-              </button>
+              @if (canWrite()) {
+                <button class="df-btn df-btn-secundario" type="button" (click)="restaurar()" [disabled]="carregando()">Descartar</button>
+                <button class="df-btn df-btn-primary" type="submit" [disabled]="carregando()">
+                  {{ carregando() ? 'Salvando...' : 'Salvar alterações' }}
+                </button>
+              }
             </div>
           </form>
         </section>
@@ -152,6 +157,11 @@ export class AccountComponent {
   erro = signal<string | null>(null);
   sucesso = signal<string | null>(null);
 
+  canWrite(): boolean {
+    const role = this.auth.usuario()?.papel;
+    return role === 'ADMIN' || role === 'ANALISTA';
+  }
+
   form = this.fb.nonNullable.group(
     {
       nome: [this.auth.usuario()?.nome ?? '', [Validators.required, Validators.minLength(2), Validators.maxLength(120)]],
@@ -163,6 +173,7 @@ export class AccountComponent {
   );
 
   salvar(): void {
+    if (!this.canWrite()) return;
     this.form.markAllAsTouched();
     this.erro.set(null);
     this.sucesso.set(null);
@@ -194,6 +205,7 @@ export class AccountComponent {
   }
 
   restaurar(): void {
+    if (!this.canWrite()) return;
     const usuario = this.auth.usuario();
     if (!usuario) return;
     this.form.reset({ nome: usuario.nome, email: usuario.email, senha: '', confirmarSenha: '' });

@@ -45,6 +45,10 @@ export class AnalysisService {
     return this.http.post<void>(`${this.baseUrl}/${idExecucao}/cancelar`, {});
   }
 
+  remover(idExecucao: number) {
+    return this.http.delete<void>(`${this.baseUrl}/${idExecucao}`);
+  }
+
   /** Resultados paginados e ordenados por escore (RF06/RF07/RF08). */
   obterResultados(
     idExecucao: number,

@@ -7,6 +7,7 @@ import { DatasetService } from '../../core/services/dataset.service';
 import { AnalysisService } from '../../core/services/analysis.service';
 import { ExecucaoAnalise } from '../../core/models/analise.model';
 import { StatusExecucao } from '../../core/models/enums';
+import { AuthService } from '../../core/services/auth.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -20,8 +21,10 @@ import { StatusExecucao } from '../../core/models/enums';
           <h1 class="page-title">Visão Geral</h1>
         </div>
         <div class="page-header__actions">
-          <a routerLink="/datasets/importar" class="df-btn df-btn-secundario">Importar Dataset</a>
-          <a routerLink="/analises/nova" class="df-btn df-btn-primary">Nova Análise</a>
+          @if (canWrite()) {
+            <a routerLink="/datasets/importar" class="df-btn df-btn-secundario">Importar Dataset</a>
+            <a routerLink="/analises/nova" class="df-btn df-btn-primary">Nova Análise</a>
+          }
         </div>
       </header>
 
@@ -29,9 +32,11 @@ import { StatusExecucao } from '../../core/models/enums';
         <app-stat-card rotulo="Datasets" [valor]="totalDatasets()" />
         <app-stat-card rotulo="Análises" [valor]="totalAnalises()" />
         <app-stat-card rotulo="Suspeitas" [valor]="totalSuspeitas()" />
+        @if (canWrite()) {
         <a routerLink="/benchmark" class="card-speedup">
           <app-stat-card rotulo="Speedup (ver Benchmark)" [valor]="melhorSpeedupTexto()" />
         </a>
+        }
       </div>
 
       <div class="grid-inferior">
@@ -45,10 +50,10 @@ import { StatusExecucao } from '../../core/models/enums';
                   [attr.y]="200 - alturaBarra(item.tempo_total_s)"
                   width="44"
                   [attr.height]="alturaBarra(item.tempo_total_s)"
-                  [attr.fill]="i === execucoesGrafico().length - 1 ? '#2563eb' : '#93c5fd'"
+                  [attr.fill]="i === execucoesGrafico().length - 1 ? 'var(--cor-primaria)' : 'color-mix(in srgb, var(--cor-primaria) 45%, var(--cor-superficie))'"
                   rx="3"
                 />
-                <text [attr.x]="i * 76 + 38" y="216" text-anchor="middle" font-size="12" fill="#6b7280">
+                <text [attr.x]="i * 76 + 38" y="216" text-anchor="middle" font-size="12" fill="var(--cor-texto-suave)">
                   #{{ item.id_execucao }}
                 </text>
               }
@@ -107,8 +112,14 @@ import { StatusExecucao } from '../../core/models/enums';
   ],
 })
 export class DashboardComponent implements OnInit {
+  private auth = inject(AuthService);
   private datasetService = inject(DatasetService);
   private analysisService = inject(AnalysisService);
+
+  canWrite(): boolean {
+    const role = this.auth.usuario()?.papel;
+    return role === 'ADMIN' || role === 'ANALISTA';
+  }
 
   private execucoes = signal<ExecucaoAnalise[]>([]);
   private totalDatasetsSignal = signal(0);

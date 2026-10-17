@@ -1,8 +1,10 @@
+from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
+import logging
 from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -11,22 +13,29 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
+from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.api.schemas.benchmark import (
+    BenchmarkConfiguracaoSchema,
     BenchmarkExecucaoRespostaSchema,
     BenchmarkRespostaSchema,
     CriarBenchmarkSchema,
 )
+from src.fraud_detector.api.schemas.opencl import OpenCLCapabilitiesSchema
 from src.fraud_detector.application.analysis_service import (
-    AnalysisNotFoundError,
-    AnalysisRequestError,
     create_execution,
     run_execution,
+)
+from src.fraud_detector.computational.execution.opencl_isolation_forest import (
+    OpenCLExecutionError,
+    OpenCLIsolationForestExecutor,
+    OpenCLRuntimeUnavailableError,
 )
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
 from src.fraud_detector.domain.enums.benchmark_role import PapelBenchmark
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
 from src.fraud_detector.domain.enums.execution_status import StatusExecucao
 from src.fraud_detector.infrastructure.database.database import get_db
+from src.fraud_detector.infrastructure.database.database import SessionLocal
 from src.fraud_detector.infrastructure.models.benchmark import (
     BenchmarkExecucaoModel,
     BenchmarkModel,
@@ -39,12 +48,39 @@ from src.fraud_detector.infrastructure.models.execution import ExecucaoAnaliseMo
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
+logger = logging.getLogger(__name__)
+
+
+@benchmarks_router.get(
+    "/capacidades", response_model=OpenCLCapabilitiesSchema
+)
+def get_benchmark_capabilities(
+    _: UsuarioModel = Depends(get_current_user),
+):
+    try:
+        devices = OpenCLIsolationForestExecutor.available_devices()
+    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
+        raise HTTPException(
+            status_code=503, detail=f"Dispositivo OpenCL indisponível: {error}"
+        ) from error
+    return OpenCLCapabilitiesSchema(
+        dispositivos=[
+            {
+                "tipo": device_type,
+                "plataforma": platform,
+                "nome": device_name,
+                "max_workers": max_workers,
+            }
+            for device_type, platform, device_name, max_workers in devices
+        ]
+    )
 
 
 @benchmarks_router.post("", response_model=BenchmarkRespostaSchema)
 def create_benchmark(
     payload: CriarBenchmarkSchema,
-    current_user: UsuarioModel = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
+    current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
 ):
     configs = payload.configuracoes
@@ -62,7 +98,7 @@ def create_benchmark(
     ):
         raise HTTPException(
             status_code=422,
-            detail="O benchmark deve conter uma configuração sequencial (1 worker) e apenas configurações paralelas adicionais",
+            detail="O benchmark deve conter uma configuração sequencial (1 worker), podendo incluir configurações paralelas adicionais",
         )
 
     dataset = (
@@ -89,6 +125,45 @@ def create_benchmark(
             detail="Benchmarks estão disponíveis apenas para Isolation Forest",
         )
 
+    parallel_configs = [
+        item for item in configs if item.modo_execucao == ModoExecucao.PARALELO
+    ]
+    for config in parallel_configs:
+        if config.tipo_dispositivo is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Selecione CPU ou GPU para a configuração paralela",
+            )
+    if parallel_configs:
+        try:
+            devices = OpenCLIsolationForestExecutor.available_devices()
+        except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
+            raise HTTPException(
+                status_code=503, detail=f"Dispositivo OpenCL indisponível: {error}"
+            ) from error
+        device_limits = {device[0]: device[3] for device in devices}
+        for config in parallel_configs:
+            device_type = config.tipo_dispositivo
+            if device_type is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Selecione CPU ou GPU para a configuração paralela",
+                )
+            max_workers = device_limits.get(device_type)
+            if max_workers is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Não há dispositivo {device_type} OpenCL disponível",
+                )
+            if config.num_workers > max_workers:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"A quantidade de workers excede o limite ({max_workers}) "
+                        f"do dispositivo {device_type} OpenCL"
+                    ),
+                )
+
     labels = ", ".join(item.rotulo for item in configs)
     description = (
         "Comparação OpenCL; num_workers define o tamanho do work-group, "
@@ -98,80 +173,170 @@ def create_benchmark(
         id_usuario=current_user.id_usuario,
         id_dataset=dataset.id_dataset,
         descricao=description,
+        status="PENDENTE",
     )
     db.add(benchmark)
     db.commit()
     db.refresh(benchmark)
 
-    baseline_seconds: Decimal | None = None
-    ordered_configs = baseline_configs + [
-        item for item in configs if item.modo_execucao == ModoExecucao.PARALELO
-    ]
-    for config in ordered_configs:
-        try:
+    background_tasks.add_task(
+        run_benchmark_in_background,
+        benchmark.id_benchmark,
+        current_user.id_usuario,
+        dataset.id_dataset,
+        model.id_modelo,
+        [item.model_dump() for item in configs],
+    )
+    return _benchmark_response(db, benchmark)
+
+
+def run_benchmark_in_background(
+    benchmark_id: int,
+    owner_id: int,
+    dataset_id: int,
+    model_id: int,
+    configs: list[dict[str, object]],
+) -> None:
+    db = SessionLocal()
+    try:
+        benchmark = db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
+        if benchmark is None:
+            return
+        db.query(BenchmarkModel).filter(
+            BenchmarkModel.id_benchmark == benchmark_id,
+            BenchmarkModel.status == "PENDENTE",
+        ).update({"status": "EM_ANDAMENTO"})
+        db.commit()
+        db.refresh(benchmark)
+        if benchmark.status in ("CANCELADO", "CANCELAMENTO_SOLICITADO"):
+            benchmark.status = "CANCELADO"
+            db.commit()
+            return
+
+        baseline_seconds: Decimal | None = None
+        configurations = [BenchmarkConfiguracaoSchema.model_validate(item) for item in configs]
+        ordered_configs = [item for item in configurations if item.modo_execucao == ModoExecucao.SEQUENCIAL]
+        ordered_configs.extend(
+            item for item in configurations if item.modo_execucao == ModoExecucao.PARALELO
+        )
+
+        for config in ordered_configs:
+            db.refresh(benchmark)
+            if benchmark.status == "CANCELAMENTO_SOLICITADO":
+                benchmark.status = "CANCELADO"
+                db.commit()
+                return
+
             execution = create_execution(
                 db,
-                owner_id=current_user.id_usuario,
-                dataset_id=dataset.id_dataset,
-                model_id=model.id_modelo,
+                owner_id=owner_id,
+                dataset_id=dataset_id,
+                model_id=model_id,
                 mode=config.modo_execucao,
                 workers=config.num_workers,
+                device_type=(
+                    config.tipo_dispositivo
+                    if config.modo_execucao == ModoExecucao.PARALELO
+                    else None
+                ),
                 chunk_size=None,
                 threshold=None,
             )
-        except AnalysisRequestError as error:
-            if isinstance(error, AnalysisNotFoundError):
-                raise HTTPException(status_code=404, detail=str(error)) from error
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        run_execution(db, execution.id_execucao)
-        db.refresh(execution)
-
-        role = (
-            PapelBenchmark.BASELINE
-            if config.modo_execucao == ModoExecucao.SEQUENCIAL
-            else PapelBenchmark.COMPARACAO
-        )
-        elapsed = execution.tempo_total_s
-        if (
-            role == PapelBenchmark.BASELINE
-            and execution.status == StatusExecucao.CONCLUIDA
-        ):
-            baseline_seconds = elapsed
-            speedup = Decimal("1")
-            efficiency = Decimal("1")
-        elif (
-            execution.status == StatusExecucao.CONCLUIDA
-            and elapsed is not None
-            and elapsed > 0
-            and baseline_seconds is not None
-            and baseline_seconds > 0
-        ):
-            speedup = _positive_decimal(
-                baseline_seconds / elapsed, scale=4, maximum=Decimal("9999.9999")
+            role = (
+                PapelBenchmark.BASELINE
+                if config.modo_execucao == ModoExecucao.SEQUENCIAL
+                else PapelBenchmark.COMPARACAO
             )
-            efficiency = (
-                _positive_decimal(
-                    speedup / Decimal(config.num_workers),
-                    scale=4,
-                    maximum=Decimal("99.9999"),
-                )
-                if speedup is not None
-                else None
-            )
-        else:
-            speedup = None
-            efficiency = None
-        db.add(
-            BenchmarkExecucaoModel(
-                id_benchmark=benchmark.id_benchmark,
+            association = BenchmarkExecucaoModel(
+                id_benchmark=benchmark_id,
                 id_execucao=execution.id_execucao,
                 papel=role,
-                speedup=speedup,
-                eficiencia=efficiency,
+                tipo_dispositivo=config.tipo_dispositivo,
             )
+            db.add(association)
+            db.commit()
+
+            db.refresh(benchmark)
+            if benchmark.status in ("CANCELAMENTO_SOLICITADO", "CANCELADO"):
+                execution.status = StatusExecucao.CANCELADA
+                execution.finalizada_em = datetime.now(UTC)
+                benchmark.status = "CANCELADO"
+                db.commit()
+                return
+
+            run_execution(
+                db,
+                execution.id_execucao,
+                opencl_device_type=(
+                    config.tipo_dispositivo
+                    if config.modo_execucao == ModoExecucao.PARALELO
+                    else None
+                ),
+            )
+            db.refresh(execution)
+            db.refresh(benchmark)
+            if (
+                benchmark.status == "CANCELAMENTO_SOLICITADO"
+                or execution.status == StatusExecucao.CANCELADA
+            ):
+                benchmark.status = "CANCELADO"
+                db.commit()
+                return
+            if execution.status == StatusExecucao.FALHA:
+                benchmark.status = "FALHA"
+                benchmark.mensagem_erro = execution.mensagem_erro or "Uma configuração do benchmark falhou."
+                db.commit()
+                return
+
+            elapsed = execution.tempo_total_s
+            if role == PapelBenchmark.BASELINE and execution.status == StatusExecucao.CONCLUIDA:
+                baseline_seconds = elapsed
+                association.speedup = Decimal("1")
+                association.eficiencia = Decimal("1")
+            elif (
+                execution.status == StatusExecucao.CONCLUIDA
+                and elapsed is not None
+                and elapsed > 0
+                and baseline_seconds is not None
+                and baseline_seconds > 0
+            ):
+                speedup = _positive_decimal(
+                    baseline_seconds / elapsed,
+                    scale=4,
+                    maximum=Decimal("9999.9999"),
+                )
+                association.speedup = speedup
+                association.eficiencia = (
+                    _positive_decimal(
+                        speedup / Decimal(config.num_workers),
+                        scale=4,
+                        maximum=Decimal("99.9999"),
+                    )
+                    if speedup is not None
+                    else None
+                )
+            db.commit()
+
+        db.refresh(benchmark, with_for_update=True)
+        benchmark.status = (
+            "CANCELADO"
+            if benchmark.status == "CANCELAMENTO_SOLICITADO"
+            else "CONCLUIDO"
         )
         db.commit()
-    return _benchmark_response(db, benchmark)
+    except Exception as error:
+        db.rollback()
+        logger.exception("Falha ao executar benchmark %s", benchmark_id)
+        benchmark = db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
+        if benchmark is not None:
+            if benchmark.status == "CANCELAMENTO_SOLICITADO":
+                benchmark.status = "CANCELADO"
+            else:
+                benchmark.status = "FALHA"
+                benchmark.mensagem_erro = str(error)[:2000]
+            db.commit()
+    finally:
+        db.close()
 
 
 @benchmarks_router.get("/{benchmark_id}", response_model=BenchmarkRespostaSchema)
@@ -181,6 +346,43 @@ def get_benchmark(
     db: Session = Depends(get_db),
 ):
     benchmark = _owned_benchmark(db, benchmark_id, current_user.id_usuario)
+    return _benchmark_response(db, benchmark)
+
+
+@benchmarks_router.post("/{benchmark_id}/cancelar", response_model=BenchmarkRespostaSchema)
+def cancel_benchmark(
+    benchmark_id: int,
+    current_user: UsuarioModel = Depends(require_write_access),
+    db: Session = Depends(get_db),
+):
+    benchmark = _owned_benchmark(
+        db, benchmark_id, current_user.id_usuario, for_update=True
+    )
+    if benchmark.status in ("CONCLUIDO", "FALHA", "CANCELADO"):
+        raise HTTPException(status_code=409, detail="O benchmark já foi finalizado")
+    if benchmark.status == "PENDENTE":
+        benchmark.status = "CANCELADO"
+    else:
+        benchmark.status = "CANCELAMENTO_SOLICITADO"
+        active_executions = (
+            db.query(ExecucaoAnaliseModel)
+            .join(
+                BenchmarkExecucaoModel,
+                BenchmarkExecucaoModel.id_execucao == ExecucaoAnaliseModel.id_execucao,
+            )
+            .filter(
+                BenchmarkExecucaoModel.id_benchmark == benchmark_id,
+                ExecucaoAnaliseModel.status.in_(
+                    [StatusExecucao.PENDENTE, StatusExecucao.EM_ANDAMENTO]
+                ),
+            )
+            .all()
+        )
+        for execution in active_executions:
+            execution.status = StatusExecucao.CANCELADA
+            execution.finalizada_em = datetime.now(UTC)
+    db.commit()
+    db.refresh(benchmark)
     return _benchmark_response(db, benchmark)
 
 
@@ -270,15 +472,19 @@ def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
     return buffer.getvalue()
 
 
-def _owned_benchmark(db: Session, benchmark_id: int, owner_id: int):
-    benchmark = (
+def _owned_benchmark(
+    db: Session, benchmark_id: int, owner_id: int, *, for_update: bool = False
+):
+    query = (
         db.query(BenchmarkModel)
         .filter(
             BenchmarkModel.id_benchmark == benchmark_id,
             BenchmarkModel.id_usuario == owner_id,
         )
-        .first()
     )
+    if for_update:
+        query = query.with_for_update()
+    benchmark = query.first()
     if benchmark is None:
         raise HTTPException(status_code=404, detail="Benchmark não encontrado")
     return benchmark
@@ -298,20 +504,12 @@ def _benchmark_response(
         .order_by(BenchmarkExecucaoModel.id_benchmark_exec)
         .all()
     )
-    if any(
-        execution.status in (StatusExecucao.FALHA, StatusExecucao.CANCELADA)
-        for _, execution in rows
-    ):
-        benchmark_status = "FALHA"
-    elif all(execution.status == StatusExecucao.CONCLUIDA for _, execution in rows):
-        benchmark_status = "CONCLUIDO"
-    else:
-        benchmark_status = "EM_ANDAMENTO"
     items = [
         BenchmarkExecucaoRespostaSchema(
             id_benchmark_exec=association.id_benchmark_exec,
             id_execucao=execution.id_execucao,
             papel=association.papel,
+            tipo_dispositivo=association.tipo_dispositivo,
             modo_execucao=execution.modo_execucao,
             num_workers=execution.num_workers,
             tempo_s=execution.tempo_total_s,
@@ -327,7 +525,8 @@ def _benchmark_response(
         total_registros=dataset.total_registros if dataset else 0,
         descricao=benchmark.descricao,
         criado_em=benchmark.criado_em,
-        status=benchmark_status,
+        status=benchmark.status,
+        mensagem_erro=benchmark.mensagem_erro,
         execucoes=items,
     )
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,6 +13,7 @@ class CriarExecucaoSchema(BaseModel):
     id_modelo: int = Field(gt=0)
     modo_execucao: ModoExecucao
     num_workers: int = Field(ge=1, le=128)
+    tipo_dispositivo: Literal["CPU", "GPU"] | None = None
     tamanho_chunk: int | None = Field(default=None, gt=0)
     limiar_decisao: Decimal | None = Field(default=None, ge=0, le=1)
 
@@ -27,6 +28,7 @@ class ExecucaoRespostaSchema(BaseModel):
     modelo_nome: str | None = None
     modo_execucao: ModoExecucao
     num_workers: int
+    tipo_dispositivo: Literal["CPU", "GPU"] | None = None
     tamanho_chunk: int | None = None
     limiar_aplicado: Decimal
     status: StatusExecucao
@@ -35,6 +37,7 @@ class ExecucaoRespostaSchema(BaseModel):
     finalizada_em: datetime | None = None
     tempo_total_s: Decimal | None = None
     total_analisadas: int
+    total_registros: int = 0
     total_suspeitas: int
     mensagem_erro: str | None = None
     criado_em: datetime

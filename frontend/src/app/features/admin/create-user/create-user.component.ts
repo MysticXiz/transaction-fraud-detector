@@ -52,7 +52,7 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
             }
 
             <label class="df-label campo-espaco" for="papel">Perfil</label>
-            <app-styled-select formControlName="papel" [opcoes]="opcoesPapel" />
+            <app-styled-select formControlName="papel" ariaLabel="Perfil do usuário" [opcoes]="opcoesPapel" />
 
             @if (erro()) {
               <div class="df-alerta df-alerta-erro campo-erro" role="alert">
@@ -136,8 +136,8 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
         margin-top: 5px;
         font-size: 12px;
       }
-      .validacao-erro { color: #dc2626; }
-      .validacao-sucesso { color: #16a34a; }
+      .validacao-erro { color: var(--cor-erro-texto); }
+      .validacao-sucesso { color: var(--cor-sucesso-texto); }
       .etapa {
         animation: entrar-etapa 180ms ease-out;
       }

@@ -1,13 +1,28 @@
 import numpy as np
 import pytest
 from sklearn.ensemble import IsolationForest
+from types import SimpleNamespace
 
+from src.fraud_detector.computational.execution import opencl_isolation_forest
 from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     OpenCLIsolationForestExecutor,
     OpenCLRuntimeUnavailableError,
     _average_path_length,
     _pack_forest,
 )
+
+
+def test_select_device_can_target_cpu_or_gpu(monkeypatch):
+    cpu = SimpleNamespace(type=opencl_isolation_forest.cl.device_type.CPU, name="CPU")
+    gpu = SimpleNamespace(type=opencl_isolation_forest.cl.device_type.GPU, name="GPU")
+    platform = SimpleNamespace(
+        name="Test platform",
+        get_devices=lambda: [cpu, gpu],
+    )
+    monkeypatch.setattr(opencl_isolation_forest, "_get_platforms", lambda: [platform])
+
+    assert opencl_isolation_forest._select_device("CPU") is cpu
+    assert opencl_isolation_forest._select_device("GPU") is gpu
 
 
 def make_transactions() -> np.ndarray:

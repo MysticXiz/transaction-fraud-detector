@@ -19,7 +19,7 @@ export class StatusBadgeComponent {
       case StatusExecucao.CONCLUIDA:
         return 'Concluída';
       case StatusExecucao.EM_ANDAMENTO:
-        return 'A decorrer';
+        return 'Em andamento';
       case StatusExecucao.PENDENTE:
         return 'Pendente';
       case StatusExecucao.FALHA:
@@ -39,6 +39,8 @@ export class StatusBadgeComponent {
         return 'df-badge-aviso';
       case StatusExecucao.FALHA:
         return 'df-badge-erro';
+      case StatusExecucao.CANCELADA:
+        return 'df-badge-aviso';
       default:
         return 'df-badge-neutro';
     }

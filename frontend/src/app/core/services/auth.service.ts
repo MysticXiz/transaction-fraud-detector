@@ -13,6 +13,7 @@ import {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
+  private readonly tokenStorageKey = 'df_access_token';
   private http = inject(HttpClient);
   private router = inject(Router);
   private baseUrl = `${environment.apiUrl}/auth`;
@@ -22,11 +23,18 @@ export class AuthService {
   estaAutenticado = computed(() => !!this.usuario());
 
   token(): string | null {
-    return null;
+    return localStorage.getItem(this.tokenStorageKey);
   }
 
   login(payload: LoginRequest) {
-    return this.http.post<LoginResponse>(`${this.baseUrl}/login`, payload, { withCredentials: true }).pipe();
+    return this.http
+      .post<LoginResponse>(`${this.baseUrl}/login`, payload)
+      .pipe(
+        tap(({ access_token }) => {
+          this.usuario.set(null);
+          localStorage.setItem(this.tokenStorageKey, access_token);
+        })
+      );
   }
 
   registrar(payload: RegisterRequest) {
@@ -34,7 +42,9 @@ export class AuthService {
   }
 
   carregarPerfil() {
-    return this.http.get<Usuario>(`${this.baseUrl}/me`, { withCredentials: true }).pipe(tap((u) => this.usuario.set(u)));
+    return this.http
+      .get<Usuario>(`${this.baseUrl}/me`, { withCredentials: true })
+      .pipe(tap((u) => this.usuario.set(u)));
   }
 
   atualizarPerfil(payload: UpdateProfileRequest) {
@@ -44,7 +54,7 @@ export class AuthService {
   }
 
   logout(): void {
-    this.http.post(`${this.baseUrl}/logout`, {}, { withCredentials: true }).subscribe();
+    localStorage.removeItem(this.tokenStorageKey);
     this.usuario.set(null);
     this.router.navigateByUrl('/login');
   }

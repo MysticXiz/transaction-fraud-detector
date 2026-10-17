@@ -5,6 +5,7 @@ export interface ExecucaoAnaliseCreate {
   id_modelo: number;
   modo_execucao: ModoExecucao;
   num_workers: number;
+  tipo_dispositivo?: 'CPU' | 'GPU' | null;
   tamanho_chunk?: number;
   limiar_decisao?: number;
 }
@@ -17,6 +18,7 @@ export interface ExecucaoAnalise {
   modelo_nome?: string;
   modo_execucao: ModoExecucao;
   num_workers: number;
+  tipo_dispositivo?: 'CPU' | 'GPU' | null;
   tamanho_chunk?: number;
   status: StatusExecucao;
   progresso_percentual?: number;
@@ -24,6 +26,7 @@ export interface ExecucaoAnalise {
   finalizada_em?: string;
   tempo_total_s?: number;
   total_analisadas: number;
+  total_registros?: number;
   total_suspeitas: number;
   mensagem_erro?: string;
 }

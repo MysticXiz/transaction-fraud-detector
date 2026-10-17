@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from src.fraud_detector.api.dependencies.auth import get_current_user
+from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.api.dependencies.transaction import get_transaction_repository
 from src.fraud_detector.api.schemas.transaction import (
     TransacaoCriacaoSchema,
@@ -31,28 +32,35 @@ transactions_router = APIRouter(prefix="/transactions", tags=["Transactions"])
 )
 def create_transaction(
     transaction_data: TransacaoCriacaoSchema,
-    _: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(require_write_access),
     repository: RepositorioTransacao = Depends(get_transaction_repository),
 ):
-    """Cria uma transação para qualquer usuário autenticado."""
-    return CriarTransacaoUseCase(repository).execute(transaction_data)
+    """Cria uma transação somente em um dataset pertencente ao usuário."""
+    try:
+        return CriarTransacaoUseCase(repository).execute(
+            transaction_data, current_user.id_usuario
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
 
 @transactions_router.get("", response_model=list[TransacaoRespostaSchema])
 def get_transactions(
-    _: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(get_current_user),
     repository: RepositorioTransacao = Depends(get_transaction_repository),
 ):
-    return ObterTransacaoUseCase(repository).get_all()
+    return ObterTransacaoUseCase(repository).get_all(current_user.id_usuario)
 
 
 @transactions_router.get("/{id_transacao}", response_model=TransacaoRespostaSchema)
 def get_transaction(
     id_transacao: int,
-    _: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(get_current_user),
     repository: RepositorioTransacao = Depends(get_transaction_repository),
 ):
-    transaction = ObterTransacaoUseCase(repository).get_by_id(id_transacao)
+    transaction = ObterTransacaoUseCase(repository).get_by_id(
+        id_transacao, current_user.id_usuario
+    )
     if transaction is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transação não encontrada"
@@ -64,12 +72,12 @@ def get_transaction(
 def update_transaction(
     id_transacao: int,
     transaction_data: TransacaoAtualizacaoSchema,
-    _: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(require_write_access),
     repository: RepositorioTransacao = Depends(get_transaction_repository),
 ):
     try:
         return AtualizarTransacaoUseCase(repository).execute(
-            id_transacao, transaction_data
+            id_transacao, current_user.id_usuario, transaction_data
         )
     except ValueError as error:
         raise HTTPException(
@@ -85,11 +93,13 @@ def update_transaction(
 @transactions_router.delete("/{id_transacao}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_transaction(
     id_transacao: int,
-    _: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(require_write_access),
     repository: RepositorioTransacao = Depends(get_transaction_repository),
 ):
     try:
-        ExcluirTransacaoUseCase(repository).execute(id_transacao)
+        ExcluirTransacaoUseCase(repository).execute(
+            id_transacao, current_user.id_usuario
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transação não encontrada"

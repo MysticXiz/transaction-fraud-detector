@@ -14,6 +14,7 @@ from sqlalchemy import insert
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.computational.execution.opencl_isolation_forest import (
+    OpenCLDeviceType,
     OpenCLIsolationForestExecutor,
 )
 from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
@@ -101,6 +102,7 @@ def create_execution(
     model_id: int,
     mode: ModoExecucao,
     workers: int,
+    device_type: OpenCLDeviceType | None,
     chunk_size: int | None,
     threshold: Decimal | None,
 ) -> ExecucaoAnaliseModel:
@@ -131,6 +133,7 @@ def create_execution(
         id_usuario=owner_id,
         modo_execucao=mode,
         num_workers=workers,
+        tipo_dispositivo=device_type,
         tamanho_chunk=chunk_size or DEFAULT_CHUNK_SIZE,
         limiar_aplicado=threshold if threshold is not None else model.limiar_padrao,
         status=StatusExecucao.PENDENTE,
@@ -153,12 +156,22 @@ def _validate_supported_model(
     return model
 
 
-def run_execution(db: Session, execution_id: int) -> None:
+def run_execution(
+    db: Session,
+    execution_id: int,
+    *,
+    opencl_device_type: OpenCLDeviceType | None = None,
+) -> None:
     with _ANALYSIS_LOCK:
-        _run_execution(db, execution_id)
+        _run_execution(db, execution_id, opencl_device_type=opencl_device_type)
 
 
-def _run_execution(db: Session, execution_id: int) -> None:
+def _run_execution(
+    db: Session,
+    execution_id: int,
+    *,
+    opencl_device_type: OpenCLDeviceType | None = None,
+) -> None:
     execution = (
         db.query(ExecucaoAnaliseModel)
         .filter_by(id_execucao=execution_id)
@@ -206,7 +219,12 @@ def _run_execution(db: Session, execution_id: int) -> None:
                 .first()
             )
             model = _validate_supported_model(model)
-            executor = _create_executor(model.hiperparametros or {})
+            executor = _create_executor(
+                model.hiperparametros or {},
+                opencl_device_type=(
+                    opencl_device_type or execution.tipo_dispositivo
+                ),
+            )
 
             inference_started = perf_counter()
             executor.fit(features)
@@ -318,7 +336,11 @@ def _transactions_frame(rows: list[TransacaoModel]) -> pd.DataFrame:
     return pd.DataFrame.from_records(records)
 
 
-def _create_executor(parameters: dict[str, Any]) -> OpenCLIsolationForestExecutor:
+def _create_executor(
+    parameters: dict[str, Any],
+    *,
+    opencl_device_type: OpenCLDeviceType | None = None,
+) -> OpenCLIsolationForestExecutor:
     n_estimators = parameters.get("n_estimators", 200)
     contamination = parameters.get("contamination", 0.0017)
     random_state = parameters.get("random_state", 42)
@@ -336,6 +358,7 @@ def _create_executor(parameters: dict[str, Any]) -> OpenCLIsolationForestExecuto
         n_estimators=n_estimators,
         contamination=contamination_value,
         random_state=random_state,
+        device_type=opencl_device_type,
     )
 
 

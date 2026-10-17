@@ -31,6 +31,20 @@ export interface DatasetImportPayload {
   arquivo: File;
 }
 
+export interface DatasetImportJob {
+  id_importacao: number;
+  status:
+    | 'PENDENTE'
+    | 'RECEBENDO'
+    | 'PROCESSANDO'
+    | 'CANCELAMENTO_SOLICITADO'
+    | 'CONCLUIDO'
+    | 'FALHA'
+    | 'CANCELADO';
+  mensagem_erro: string | null;
+  id_dataset: number | null;
+}
+
 export interface ModeloDeteccao {
   id_modelo: number;
   nome: string;

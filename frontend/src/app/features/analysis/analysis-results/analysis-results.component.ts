@@ -91,7 +91,7 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
       .mini { padding: 16px 18px; }
       .mini .rotulo { font-size: 12.5px; color: var(--cor-texto-suave); margin-bottom: 4px; }
       .mini .valor { font-size: 20px; font-weight: 700; }
-      .destaque { background: #fef2f2; }
+      .destaque { background: color-mix(in srgb, var(--cor-erro-bg) 35%, var(--cor-superficie)); }
       .cor-erro { color: var(--cor-erro-texto); }
       .sem-padding { padding: 0; overflow: hidden; }
       .barra-filtros { display: flex; align-items: center; gap: 10px; padding: 16px 24px; border-bottom: 1px solid var(--cor-borda); font-size: 13.5px; }

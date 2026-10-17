@@ -13,3 +13,6 @@ from src.fraud_detector.infrastructure.models.benchmark import (
     BenchmarkExecucaoModel,
     BenchmarkModel,
 )
+from src.fraud_detector.infrastructure.models.dataset_import_job import (
+    DatasetImportJobModel,
+)

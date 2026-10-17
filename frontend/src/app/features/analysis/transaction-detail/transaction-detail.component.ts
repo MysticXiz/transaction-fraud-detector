@@ -96,7 +96,7 @@ import { AnalysisService, DetalheTransacaoResponse } from '../../../core/service
       .atributos-ocultos { font-size: 12.5px; color: var(--cor-texto-suave); margin: 14px 0; }
       .rotulo-original { margin-top: 8px; }
       .cartao-escore { text-align: center; background: var(--cor-superficie); }
-      .cartao-escore.suspeita { background: #fef2f2; }
+      .cartao-escore.suspeita { background: color-mix(in srgb, var(--cor-erro-bg) 34%, var(--cor-superficie)); border-color: color-mix(in srgb, var(--cor-erro-texto) 42%, var(--cor-borda)); }
       .rotulo-escore { font-size: 12px; font-weight: 700; color: var(--cor-erro-texto); letter-spacing: 0.4px; }
       .valor-escore { font-size: 34px; font-weight: 800; margin: 6px 0; }
       .limiar { font-size: 12.5px; color: var(--cor-texto-suave); margin-bottom: 14px; }

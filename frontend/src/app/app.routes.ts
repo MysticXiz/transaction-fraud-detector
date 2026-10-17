@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { adminGuard } from './core/guards/admin.guard';
 import { authGuard } from './core/guards/auth.guard';
+import { writeAccessGuard } from './core/guards/write-access.guard';
 import { ShellComponent } from './layout/shell/shell.component';
 
 export const routes: Routes = [
@@ -36,6 +37,7 @@ export const routes: Routes = [
             (m) => m.DatasetImportComponent
           ),
         title: 'Importar Dataset · Detecção de Fraude',
+        canActivate: [writeAccessGuard],
       },
       {
         path: 'analises/nova',
@@ -44,6 +46,7 @@ export const routes: Routes = [
             (m) => m.AnalysisConfigComponent
           ),
         title: 'Configurar Análise · Detecção de Fraude',
+        canActivate: [writeAccessGuard],
       },
       {
         path: 'analises/:id/execucao',
@@ -76,6 +79,7 @@ export const routes: Routes = [
             (m) => m.BenchmarkConfigComponent
           ),
         title: 'Executar Benchmark · Detecção de Fraude',
+        canActivate: [writeAccessGuard],
       },
       {
         path: 'benchmark/:id/relatorio',

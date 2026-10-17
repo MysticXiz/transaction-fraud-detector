@@ -74,8 +74,8 @@ import { emailComDominioValido } from '../../../core/validators/email.validator'
         margin-top: 5px;
         font-size: 12px;
       }
-      .validacao-erro { color: #dc2626; }
-      .validacao-sucesso { color: #16a34a; }
+      .validacao-erro { color: var(--cor-erro-texto); }
+      .validacao-sucesso { color: var(--cor-sucesso-texto); }
       .botao { width: 100%; justify-content: center; margin-top: 22px; padding: 11px; }
     `,
   ],

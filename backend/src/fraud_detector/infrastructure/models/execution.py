@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     SmallInteger,
+    String,
     Text,
     UniqueConstraint,
     func,
@@ -58,6 +59,7 @@ class ExecucaoAnaliseModel(Base):
         ENUM(ModoExecucao, name="modo_execucao", create_type=False), nullable=False
     )
     num_workers: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    tipo_dispositivo: Mapped[str | None] = mapped_column(String(3))
     tamanho_chunk: Mapped[int | None] = mapped_column(Integer)
     limiar_aplicado: Mapped[Decimal] = mapped_column(
         Numeric(6, 4), nullable=False, default=Decimal("0.5000")

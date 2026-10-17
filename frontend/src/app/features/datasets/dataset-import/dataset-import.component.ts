@@ -1,9 +1,8 @@
-import { HttpErrorResponse } from '@angular/common/http';
-import { Component, ElementRef, ViewChild, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, ViewChild, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { finalize } from 'rxjs';
-import { DatasetService } from '../../../core/services/dataset.service';
+import { ProcessManagerService } from '../../../core/services/process-manager.service';
 
 const MAX_FILE_SIZE = 200 * 1024 * 1024;
 
@@ -37,6 +36,7 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;
             class="input-arquivo"
             type="file"
             accept=".csv,text/csv"
+            [disabled]="carregando()"
             (change)="onSelecionarArquivo($event)"
           />
           @if (arquivo(); as file) {
@@ -46,8 +46,16 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;
                 <strong>{{ file.name }}</strong>
                 <span>{{ formatarTamanho(file.size) }}</span>
               </div>
-              <label for="dataset-file" class="trocar-arquivo">Trocar arquivo</label>
-              <button type="button" class="remover-arquivo" (click)="limparArquivo()" aria-label="Remover arquivo selecionado">×</button>
+                <label for="dataset-file" class="trocar-arquivo" [class.desabilitado]="carregando()">Trocar arquivo</label>
+                <button type="button" class="remover-arquivo" [disabled]="carregando()" (click)="limparArquivo()" aria-label="Remover arquivo selecionado">×</button>
+            </div>
+          } @else if (carregando()) {
+            <div class="arquivo-selecionado">
+                <div class="arquivo-icone" aria-hidden="true">CSV</div>
+                <div class="arquivo-info">
+                  <strong>{{ processo()?.filename }}</strong>
+                  <span>{{ formatarTamanho(processo()?.size ?? 0) }} · importação gerenciada em segundo plano</span>
+                </div>
             </div>
           } @else {
             <label for="dataset-file" class="dropzone-label">
@@ -56,7 +64,89 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;
               <small>Formato CSV · até 200 MB</small>
             </label>
           }
+
         </div>
+
+        @if (carregando()) {
+          <section class="progresso-importacao" aria-labelledby="progress-title" aria-live="polite">
+            <div class="progresso-cabecalho">
+              <div>
+                <p class="progresso-etapa">{{ faseImportacao() === 'enviando' ? 'Etapa 1 de 2' : 'Etapa 2 de 2' }}</p>
+                <h2 id="progress-title">{{ faseImportacao() === 'enviando' ? 'Enviando arquivo' : 'Processando dataset' }}</h2>
+              </div>
+              <span class="spinner progresso-spinner" aria-hidden="true"></span>
+            </div>
+
+            @if (faseImportacao() === 'enviando') {
+              @if (progressoUpload() !== null) {
+                <div
+                  class="barra-progresso"
+                  role="progressbar"
+                  [attr.aria-valuenow]="progressoUpload()"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-label="Progresso do envio do arquivo"
+                >
+                  <div class="barra-preenchida" [style.width.%]="progressoUpload()"></div>
+                </div>
+                <div class="progresso-resumo">
+                  <strong>{{ progressoUpload() }}%</strong>
+                  <span>{{ formatarTamanho(bytesEnviados()) }} enviados</span>
+                </div>
+              } @else {
+                <div class="barra-progresso indeterminada" role="progressbar" aria-label="Iniciando envio do arquivo">
+                  <div class="barra-preenchida"></div>
+                </div>
+                <p class="texto-progresso">Preparando o envio do arquivo…</p>
+              }
+              <p class="texto-progresso">O tempo restante é uma estimativa e pode variar conforme sua conexão.</p>
+            } @else {
+              <div class="barra-progresso concluida" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" aria-label="Envio do arquivo concluído">
+                <div class="barra-preenchida" style="width: 100%"></div>
+              </div>
+              <p class="texto-progresso"><strong>Arquivo enviado.</strong> O servidor está validando o CSV, verificando duplicidade e gravando as transações. Essa etapa não tem percentual disponível.</p>
+            }
+
+            <div class="detalhes-progresso">
+              <div><span>Arquivo</span><strong>{{ processo()?.filename ?? arquivo()?.name }}</strong></div>
+              <div><span>Tamanho</span><strong>{{ formatarTamanho(processo()?.size ?? arquivo()?.size ?? 0) }}</strong></div>
+              <div><span>Tempo decorrido</span><strong>{{ formatarDuracao(tempoDecorrido()) }}</strong></div>
+              @if (faseImportacao() === 'enviando') {
+                <div><span>Velocidade média</span><strong>{{ velocidadeMedia() > 0 ? formatarTamanho(velocidadeMedia()) + '/s' : 'Calculando…' }}</strong></div>
+                <div><span>Tempo estimado para envio</span><strong>{{ estimativaEnvio() }}</strong></div>
+              }
+            </div>
+
+            <ol class="etapas-importacao">
+              <li [class.concluida]="faseImportacao() === 'processando'">
+                <span class="etapa-icone">{{ faseImportacao() === 'processando' ? '✓' : '1' }}</span>
+                <span>Transferência do arquivo</span>
+                <strong>{{ faseImportacao() === 'processando' ? 'Concluída' : 'Em andamento' }}</strong>
+              </li>
+              <li [class.ativa]="faseImportacao() === 'processando'">
+                <span class="etapa-icone">2</span>
+                <span>Validação e importação pelo servidor</span>
+                <strong>{{ faseImportacao() === 'processando' ? 'Em andamento' : 'Aguardando' }}</strong>
+              </li>
+            </ol>
+          </section>
+        }
+        @if (processo()?.status === 'completed') {
+          <div class="importacao-concluida" role="status">
+            <div>
+              <strong>Importação concluída</strong>
+              <p>{{ processo()?.filename }} foi adicionado como dataset.</p>
+            </div>
+            <div class="acoes-concluida">
+              <a
+                class="df-btn df-btn-primary"
+                [routerLink]="['/analises/nova']"
+                [queryParams]="{ datasetId: processo()?.dataset?.id_dataset }"
+              >Configurar análise</a>
+              <button type="button" class="fechar-concluida" (click)="processManager.dismissDatasetImport()">Dispensar</button>
+            </div>
+          </div>
+        }
 
         <div class="form-section">
           <h2>Identificação</h2>
@@ -86,7 +176,7 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;
         @if (erro()) {
           <div class="alerta erro" role="alert" aria-live="assertive">
             <span>{{ erro() }}</span>
-            <button type="button" aria-label="Fechar erro" (click)="erro.set(null)">×</button>
+            <button type="button" aria-label="Fechar erro" (click)="limparErro()">×</button>
           </div>
         }
 
@@ -138,6 +228,38 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;
     .alerta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; padding: 11px 13px; border-radius: 6px; font-size: 13px; }
     .alerta.erro { background: var(--cor-erro-bg); color: var(--cor-erro-texto); }
     .alerta button { border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
+    .progresso-importacao { display: grid; gap: 14px; margin: 4px 0 22px; padding: 18px; border: 1px solid var(--cor-borda); border-radius: 10px; background: var(--cor-superficie); color: var(--cor-texto); box-shadow: 0 4px 16px rgba(15, 23, 42, .06); }
+    .importacao-concluida { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 4px 0 22px; padding: 16px; border: 1px solid var(--cor-sucesso-texto); border-radius: 9px; background: var(--cor-sucesso-bg); color: var(--cor-sucesso-texto); }
+    .importacao-concluida p { margin-top: 4px; font-size: 12px; }
+    .acoes-concluida { display: flex; align-items: center; gap: 10px; }
+    .fechar-concluida { border: 1px solid currentColor; border-radius: 6px; padding: 8px 10px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+    .progresso-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .progresso-etapa { margin-bottom: 4px; color: var(--cor-primaria); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .progresso-cabecalho h2 { margin: 0; font-size: 15px; }
+    .progresso-spinner { border-color: var(--cor-borda); border-top-color: var(--cor-primaria); }
+    .barra-progresso { height: 9px; overflow: hidden; border-radius: 999px; background: var(--cor-superficie-suave); }
+    .barra-preenchida { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cor-primaria), #60a5fa); transition: width .25s ease; }
+    .barra-progresso.concluida .barra-preenchida { background: var(--cor-sucesso-texto); }
+    .barra-progresso.indeterminada .barra-preenchida { width: 35%; animation: mover 1.3s ease-in-out infinite alternate; }
+    .progresso-resumo { display: flex; justify-content: space-between; align-items: baseline; margin-top: -8px; }
+    .progresso-resumo strong { color: var(--cor-primaria); font-size: 20px; }
+    .progresso-resumo span, .texto-progresso { color: var(--cor-texto-suave); font-size: 12px; }
+    .texto-progresso { margin: 0; line-height: 1.55; }
+    .detalhes-progresso { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--cor-borda); border-bottom: 1px solid var(--cor-borda); }
+    .detalhes-progresso div { display: grid; gap: 4px; min-width: 0; }
+    .detalhes-progresso span { color: var(--cor-texto-suave); font-size: 11px; }
+    .detalhes-progresso strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .etapas-importacao { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+    .etapas-importacao li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 9px; color: var(--cor-texto-suave); font-size: 12px; }
+    .etapas-importacao li strong { font-size: 11px; font-weight: 600; }
+    .etapas-importacao li.concluida { color: var(--cor-sucesso-texto); }
+    .etapas-importacao li.ativa { color: var(--cor-primaria); }
+    .etapa-icone { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--cor-borda); border-radius: 50%; font-size: 10px; font-weight: 700; }
+    .etapas-importacao li.concluida .etapa-icone { border-color: var(--cor-sucesso-texto); background: var(--cor-sucesso-bg); }
+    .etapas-importacao li.ativa .etapa-icone { border-color: var(--cor-primaria); }
+    .trocar-arquivo.desabilitado { opacity: .5; pointer-events: none; }
+    .remover-arquivo:disabled { opacity: .4; cursor: not-allowed; }
+    @keyframes mover { from { transform: translateX(-20%); } to { transform: translateX(190%); } }
     .acoes { display: flex; justify-content: flex-end; gap: 9px; padding-top: 16px; border-top: 1px solid var(--cor-borda); }
     .df-btn-primary:disabled { opacity: .55; cursor: not-allowed; }
     .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.5); border-top-color: white; border-radius: 50%; animation: girar .7s linear infinite; }
@@ -147,20 +269,50 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;
 })
 export class DatasetImportComponent {
   @ViewChild('fileInput') private fileInput?: ElementRef<HTMLInputElement>;
+  private destroyRef = inject(DestroyRef);
   private fb = inject(FormBuilder);
-  private datasetService = inject(DatasetService);
   private router = inject(Router);
+  processManager = inject(ProcessManagerService);
 
   arquivo = signal<File | null>(null);
   arrastando = signal(false);
-  carregando = signal(false);
-  erro = signal<string | null>(null);
+  private erroLocal = signal<string | null>(null);
+  processo = this.processManager.datasetImport;
+  carregando = computed(() => {
+    const status = this.processo()?.status;
+    return (
+      status === 'starting' ||
+      status === 'uploading' ||
+      status === 'processing' ||
+      status === 'cancelling'
+    );
+  });
+  erro = computed(() => this.erroLocal() ?? this.processo()?.error ?? null);
+  faseImportacao = computed(() =>
+    this.processo()?.status === 'processing' ? 'processando' : 'enviando'
+  );
+  progressoUpload = computed(() => this.processo()?.progress ?? null);
+  bytesEnviados = computed(() => this.processo()?.bytesSent ?? 0);
+  velocidadeMedia = computed(() => this.processo()?.bytesPerSecond ?? 0);
+  tempoDecorrido = computed(() => this.processo()?.elapsedSeconds ?? 0);
 
   form = this.fb.nonNullable.group({
     nome: ['', [Validators.required, Validators.maxLength(160)]],
     origem: ['Pública', Validators.required],
     descricao: ['', Validators.maxLength(1000)],
   });
+
+  constructor() {
+    this.processManager.datasetImportCompleted
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((dataset) => {
+        if (this.router.url.startsWith('/datasets/importar')) {
+          this.router.navigate(['/analises/nova'], {
+            queryParams: { datasetId: dataset.id_dataset },
+          });
+        }
+      });
+  }
 
   podeEnviar(): boolean {
     const file = this.arquivo();
@@ -180,6 +332,7 @@ export class DatasetImportComponent {
   onDrop(event: DragEvent): void {
     event.preventDefault();
     this.arrastando.set(false);
+    if (this.carregando()) return;
     const file = event.dataTransfer?.files?.[0];
     if (file) this.selecionarArquivo(file);
   }
@@ -193,7 +346,14 @@ export class DatasetImportComponent {
   limparArquivo(): void {
     this.arquivo.set(null);
     if (this.fileInput) this.fileInput.nativeElement.value = '';
-    this.erro.set(null);
+    this.erroLocal.set(null);
+  }
+
+  limparErro(): void {
+    this.erroLocal.set(null);
+    if (this.processo()?.status === 'failed') {
+      this.processManager.dismissDatasetImport();
+    }
   }
 
   formatarTamanho(bytes: number): string {
@@ -201,45 +361,44 @@ export class DatasetImportComponent {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
+  formatarDuracao(seconds: number): string {
+    const minutes = Math.floor(seconds / 60);
+    const remaining = seconds % 60;
+    return minutes ? `${minutes} min ${remaining} s` : `${remaining} s`;
+  }
+
+  estimativaEnvio(): string {
+    const speed = this.velocidadeMedia();
+    const remaining = (this.processo()?.size ?? this.arquivo()?.size ?? 0) - this.bytesEnviados();
+    if (speed <= 0 || remaining <= 0) return 'Calculando…';
+    return `~${this.formatarDuracao(Math.ceil(remaining / speed))}`;
+  }
+
   importar(): void {
     const file = this.arquivo();
     if (!this.podeEnviar() || !file) return;
-    this.carregando.set(true);
-    this.erro.set(null);
+    this.erroLocal.set(null);
     const { nome, origem, descricao } = this.form.getRawValue();
-
-    this.datasetService.importar({ nome, origem, descricao, arquivo: file })
-      .pipe(finalize(() => this.carregando.set(false)))
-      .subscribe({
-        next: (dataset) => this.router.navigate(['/analises/nova'], { queryParams: { datasetId: dataset.id_dataset } }),
-        error: (error: unknown) => this.erro.set(this.mensagemErro(error)),
-      });
+    if (!this.processManager.startDatasetImport({ nome, origem, descricao, arquivo: file })) {
+      this.erroLocal.set('Já existe uma importação de dataset em andamento.');
+    }
   }
 
   private selecionarArquivo(file: File): void {
-    this.erro.set(null);
+    if (this.carregando()) return;
+    this.erroLocal.set(null);
     if (!file.name.toLowerCase().endsWith('.csv')) {
       this.arquivo.set(null);
-      this.erro.set('Selecione um arquivo com extensão .csv.');
+      this.erroLocal.set('Selecione um arquivo com extensão .csv.');
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
       this.arquivo.set(null);
-      this.erro.set('O arquivo excede o limite de 200 MB.');
+      this.erroLocal.set('O arquivo excede o limite de 200 MB.');
       return;
     }
     this.arquivo.set(file);
     if (!this.form.controls.nome.value) this.form.controls.nome.setValue(file.name.replace(/\.csv$/i, ''));
   }
 
-  private mensagemErro(error: unknown): string {
-    if (!(error instanceof HttpErrorResponse)) return 'Ocorreu um erro inesperado ao importar o dataset.';
-    if (error.status === 0) return 'Não foi possível conectar ao backend. Verifique se a API está em execução.';
-    const detail: unknown = error.error?.detail;
-    if (typeof detail === 'string' && detail.trim()) return detail;
-    if (Array.isArray(detail)) return detail.map((item: unknown) => typeof item === 'object' && item !== null && 'msg' in item ? String(item.msg) : '').filter(Boolean).join(' ');
-    if (error.status === 413) return 'O arquivo excede o limite máximo de upload.';
-    if (error.status === 401) return 'Sua sessão expirou. Entre novamente no sistema.';
-    return `Não foi possível importar o dataset (HTTP ${error.status}).`;
-  }
 }

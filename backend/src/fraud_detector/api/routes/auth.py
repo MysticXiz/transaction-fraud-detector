@@ -16,6 +16,7 @@ from src.fraud_detector.infrastructure.repositories.user_repository import (
     RepositorioUsuario,
 )
 from src.fraud_detector.api.dependencies.roles import require_role
+from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.application.use_cases.register_user import (
     RegistrarUsuarioUseCase,
 )
@@ -63,7 +64,7 @@ async def get_me(
 @auth_router.patch("/me", response_model=UsuarioRespostaSchema)
 async def update_me(
     user_data: UsuarioAtualizacaoSchema,
-    current_user: UsuarioModel = Depends(get_current_user),
+    current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
 ) -> UsuarioModel:
     repository = RepositorioUsuario(db)

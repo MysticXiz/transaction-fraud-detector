@@ -15,7 +15,9 @@ export interface StyledSelectOption {
       <button
         class="select-trigger"
         type="button"
+        [disabled]="desabilitado"
         [attr.aria-expanded]="aberto()"
+        [attr.aria-label]="ariaLabel || null"
         aria-haspopup="listbox"
         (click)="alternar($event)"
         (keydown)="teclaNoGatilho($event)"
@@ -63,6 +65,7 @@ export interface StyledSelectOption {
       text-align: left;
     }
     .select-trigger:hover, .select-trigger[aria-expanded='true'] { border-color: var(--cor-primaria); }
+    .select-trigger:disabled { cursor: not-allowed; opacity: .6; }
     .select-trigger:focus-visible, .select-opcao:focus-visible { outline: 2px solid #bfdbfe; outline-offset: 2px; }
     .select-seta { width: 16px; height: 16px; flex: 0 0 16px; fill: none; stroke: var(--cor-texto-suave); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; transition: transform .15s ease; }
     .select-seta.aberta { transform: rotate(180deg); }
@@ -96,10 +99,11 @@ export interface StyledSelectOption {
 })
 export class StyledSelectComponent implements ControlValueAccessor {
   @Input({ required: true }) opcoes: StyledSelectOption[] = [];
+  @Input() ariaLabel = '';
 
   aberto = signal(false);
   valor = signal('');
-  private desabilitado = false;
+  desabilitado = false;
   private propagarMudanca: (valor: string) => void = () => undefined;
   private propagarToque: () => void = () => undefined;
 
@@ -140,5 +144,8 @@ export class StyledSelectComponent implements ControlValueAccessor {
   writeValue(valor: string | number | null): void { this.valor.set(valor == null ? '' : String(valor)); }
   registerOnChange(fn: (valor: string) => void): void { this.propagarMudanca = fn; }
   registerOnTouched(fn: () => void): void { this.propagarToque = fn; }
-  setDisabledState(desabilitado: boolean): void { this.desabilitado = desabilitado; }
+  setDisabledState(desabilitado: boolean): void {
+    this.desabilitado = desabilitado;
+    if (desabilitado) this.aberto.set(false);
+  }
 }

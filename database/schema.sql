@@ -13,6 +13,7 @@ DROP VIEW  IF EXISTS vw_resumo_execucao       CASCADE;
 
 DROP TABLE IF EXISTS log_evento           CASCADE;
 DROP TABLE IF EXISTS benchmark_execucao    CASCADE;
+DROP TABLE IF EXISTS dataset_import_job   CASCADE;
 DROP TABLE IF EXISTS benchmark             CASCADE;
 DROP TABLE IF EXISTS metrica_execucao      CASCADE;
 DROP TABLE IF EXISTS resultado_deteccao    CASCADE;
@@ -73,13 +74,13 @@ CREATE TABLE dataset (
     importado_em    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_dataset_usuario     FOREIGN KEY (id_usuario)
         REFERENCES usuario (id_usuario) ON DELETE RESTRICT,
-    CONSTRAINT uk_dataset_hash        UNIQUE (hash_arquivo),
+    CONSTRAINT uk_dataset_usuario_hash UNIQUE (id_usuario, hash_arquivo),
     CONSTRAINT ck_dataset_registros   CHECK (total_registros >= 0),
     CONSTRAINT ck_dataset_colunas     CHECK (total_colunas > 0)
 );
 
 COMMENT ON COLUMN dataset.hash_arquivo IS
-    'SHA-256 do arquivo importado. Impede reimportacao duplicada e garante que benchmarks comparem execucoes sobre dados identicos.';
+    'SHA-256 do arquivo importado. Impede duplicatas por usuario e permite que usuarios diferentes importem o mesmo arquivo.';
 
 -- ---------------------------------------------------------------------
 -- 4. TRANSACAO
@@ -131,6 +132,7 @@ CREATE TABLE execucao_analise (
     id_usuario       INTEGER         NOT NULL,
     modo_execucao    modo_execucao   NOT NULL,
     num_workers      SMALLINT        NOT NULL DEFAULT 1,
+    tipo_dispositivo VARCHAR(3),
     tamanho_chunk    INTEGER,
     limiar_aplicado  NUMERIC(6,4)    NOT NULL DEFAULT 0.5000,
     status           status_execucao NOT NULL DEFAULT 'PENDENTE',
@@ -152,6 +154,9 @@ CREATE TABLE execucao_analise (
     CONSTRAINT ck_execucao_tempos  CHECK (finalizada_em IS NULL OR iniciada_em IS NULL
                                           OR finalizada_em >= iniciada_em),
     CONSTRAINT ck_execucao_totais  CHECK (total_suspeitas <= total_analisadas),
+    CONSTRAINT ck_execucao_dispositivo CHECK (
+        tipo_dispositivo IS NULL OR tipo_dispositivo IN ('CPU', 'GPU')
+    ),
     -- Coerencia semantica: execucao sequencial obrigatoriamente usa 1 processo
     CONSTRAINT ck_execucao_modo_workers CHECK (
         modo_execucao <> 'SEQUENCIAL' OR num_workers = 1
@@ -217,6 +222,8 @@ CREATE TABLE benchmark (
     id_usuario   INTEGER      NOT NULL,
     id_dataset   INTEGER      NOT NULL,
     descricao    VARCHAR(255),
+    status       VARCHAR(32)  NOT NULL DEFAULT 'PENDENTE',
+    mensagem_erro TEXT,
     criado_em    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_benchmark_usuario FOREIGN KEY (id_usuario)
         REFERENCES usuario (id_usuario) ON DELETE RESTRICT,
@@ -224,11 +231,31 @@ CREATE TABLE benchmark (
         REFERENCES dataset (id_dataset) ON DELETE CASCADE
 );
 
+CREATE TABLE dataset_import_job (
+    id_importacao SERIAL PRIMARY KEY,
+    id_usuario INTEGER NOT NULL,
+    nome VARCHAR(160) NOT NULL,
+    origem VARCHAR(80) NOT NULL,
+    descricao TEXT,
+    nome_arquivo VARCHAR(255) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDENTE',
+    cancelamento_solicitado BOOLEAN NOT NULL DEFAULT FALSE,
+    mensagem_erro TEXT,
+    id_dataset INTEGER,
+    criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_importacao_usuario FOREIGN KEY (id_usuario)
+        REFERENCES usuario (id_usuario) ON DELETE CASCADE,
+    CONSTRAINT fk_importacao_dataset FOREIGN KEY (id_dataset)
+        REFERENCES dataset (id_dataset) ON DELETE SET NULL
+);
+
 CREATE TABLE benchmark_execucao (
     id_benchmark_exec SERIAL          PRIMARY KEY,
     id_benchmark      INTEGER         NOT NULL,
     id_execucao       INTEGER         NOT NULL,
     papel             papel_benchmark NOT NULL,
+    tipo_dispositivo  VARCHAR(3),
     speedup           NUMERIC(8,4),
     eficiencia        NUMERIC(6,4),
     CONSTRAINT fk_bexec_benchmark FOREIGN KEY (id_benchmark)
@@ -237,7 +264,10 @@ CREATE TABLE benchmark_execucao (
         REFERENCES execucao_analise (id_execucao) ON DELETE CASCADE,
     CONSTRAINT uk_bexec           UNIQUE (id_benchmark, id_execucao),
     CONSTRAINT ck_bexec_speedup   CHECK (speedup    IS NULL OR speedup    > 0),
-    CONSTRAINT ck_bexec_eficien   CHECK (eficiencia IS NULL OR eficiencia > 0)
+    CONSTRAINT ck_bexec_eficien   CHECK (eficiencia IS NULL OR eficiencia > 0),
+    CONSTRAINT ck_bexec_dispositivo CHECK (
+        tipo_dispositivo IS NULL OR tipo_dispositivo IN ('CPU', 'GPU')
+    )
 );
 
 COMMENT ON TABLE benchmark_execucao IS

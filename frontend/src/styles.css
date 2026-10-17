@@ -19,6 +19,10 @@
   --cor-erro-texto: #dc2626;
   --cor-aviso-bg: #fef9c3;
   --cor-aviso-texto: #a16207;
+  --cor-info-bg: #dbeafe;
+  --cor-info-texto: #1d4ed8;
+  --cor-neutro-bg: #e5e7eb;
+  --cor-neutro-texto: #374151;
   --raio: 8px;
   --sombra: 0 1px 3px rgba(16, 24, 40, 0.08);
 }
@@ -39,6 +43,10 @@
   --cor-erro-texto: #fecaca;
   --cor-aviso-bg: #713f12;
   --cor-aviso-texto: #fde68a;
+  --cor-info-bg: #1e3a8a;
+  --cor-info-texto: #bfdbfe;
+  --cor-neutro-bg: #334155;
+  --cor-neutro-texto: #cbd5e1;
   --sombra: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
@@ -334,7 +342,7 @@ input[type='checkbox']:checked:disabled {
 .df-badge-sucesso { background: var(--cor-sucesso-bg); color: var(--cor-sucesso-texto); }
 .df-badge-erro { background: var(--cor-erro-bg); color: var(--cor-erro-texto); }
 .df-badge-aviso { background: var(--cor-aviso-bg); color: var(--cor-aviso-texto); }
-.df-badge-neutro { background: #e5e7eb; color: #374151; }
+.df-badge-neutro { background: var(--cor-neutro-bg); color: var(--cor-neutro-texto); }
 
 .df-link { color: var(--cor-primaria); font-weight: 600; font-size: 14px; }
 .df-link:hover { text-decoration: underline; }
@@ -377,4 +385,3 @@ input[type='checkbox']:checked:disabled {
     animation: none;
   }
 }
-

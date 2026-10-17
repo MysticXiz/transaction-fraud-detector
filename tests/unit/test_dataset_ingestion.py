@@ -16,6 +16,7 @@ from src.fraud_detector.application.use_cases.manage_datasets import (
 )
 from src.fraud_detector.computational.ingestion.dataset_csv import (
     DatasetCsvError,
+    DatasetImportCancelledError,
     DatasetCsvReader,
     DatasetTooLargeError,
     stream_upload_to_file,
@@ -128,19 +129,23 @@ class FakeRepository:
         self.deleted = None
         self.lock = threading.Lock()
 
-    def get_by_hash(self, file_hash):
+    def get_by_hash(self, file_hash, owner_id):
         if self.existing_hash == file_hash:
             return object()
         for dataset in self.datasets:
-            if dataset.hash_arquivo == file_hash:
+            if dataset.hash_arquivo == file_hash and dataset.id_usuario == owner_id:
                 return dataset
-        if self.dataset is not None and self.dataset.hash_arquivo == file_hash:
+        if (
+            self.dataset is not None
+            and self.dataset.hash_arquivo == file_hash
+            and self.dataset.id_usuario == owner_id
+        ):
             return self.dataset
         return None
 
     def create_with_copy(self, dataset, parser, **kwargs):
         with self.lock:
-            if self.get_by_hash(dataset.hash_arquivo) is not None:
+            if self.get_by_hash(dataset.hash_arquivo, dataset.id_usuario) is not None:
                 raise FileExistsError("Este arquivo já foi importado")
             dataset.id_dataset = len(self.datasets) + 1
             self.dataset = dataset
@@ -199,6 +204,26 @@ class ImportarDatasetUseCaseTests(unittest.TestCase):
                 )
             self.assertFalse(list(storage.glob("*")))
 
+    def test_cancelled_upload_does_not_leave_partial_artifact(self):
+        repository = FakeRepository()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Path(directory)
+            with self.assertRaises(DatasetImportCancelledError):
+                ImportarDatasetUseCase(
+                    repository, storage, max_upload_bytes=1024
+                ).execute(
+                    io.BytesIO(b"Time,Amount\n1,2.00\n"),
+                    "cancelled.csv",
+                    1,
+                    "Cancelled",
+                    None,
+                    "x",
+                    should_cancel=lambda: True,
+                )
+
+            self.assertEqual(repository.datasets, [])
+            self.assertFalse(list(storage.glob("*")))
+
     def test_rejects_duplicate_hash(self):
         content = b"Time,Amount\n1,2.00\n"
         digest = hashlib.sha256(content).hexdigest()
@@ -209,6 +234,25 @@ class ImportarDatasetUseCaseTests(unittest.TestCase):
                     repository, Path(directory), max_upload_bytes=1024
                 ).execute(io.BytesIO(content), "dup.csv", 1, "Dup", None, "x")
             self.assertFalse(list(Path(directory).glob("*")))
+
+    def test_allows_same_file_to_be_imported_by_different_users(self):
+        content = b"Time,Amount\n1,2.00\n"
+        repository = FakeRepository()
+        with tempfile.TemporaryDirectory() as directory:
+            importer = ImportarDatasetUseCase(
+                repository, Path(directory), max_upload_bytes=1024
+            )
+            first = importer.execute(
+                io.BytesIO(content), "shared.csv", 1, "Shared", None, "test"
+            )
+            second = importer.execute(
+                io.BytesIO(content), "shared.csv", 2, "Shared", None, "test"
+            )
+
+        self.assertEqual(first.hash_arquivo, second.hash_arquivo)
+        self.assertNotEqual(first.id_dataset, second.id_dataset)
+        self.assertEqual(first.id_usuario, 1)
+        self.assertEqual(second.id_usuario, 2)
 
     def test_copy_error_removes_artifact_and_does_not_keep_dataset(self):
         class FailingRepository(FakeRepository):

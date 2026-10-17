@@ -6,6 +6,7 @@ import { Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
 import { Dataset, DatasetDetalhe } from '../../../core/models/dataset.model';
 import { DatasetService } from '../../../core/services/dataset.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 const PAGE_SIZE = 50;
 
@@ -16,29 +17,31 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
   standalone: true,
   imports: [DatePipe, DecimalPipe, FormsModule, RouterLink],
   template: `
-    <section class="dataset-page" aria-labelledby="page-title">
+    <section class="df-pagina" aria-labelledby="page-title">
       <header class="page-header" aria-labelledby="page-title">
         <div class="page-header__copy">
           <p class="page-eyebrow">Biblioteca de dados</p>
           <h1 id="page-title" class="page-title">Datasets</h1>
           <p class="page-subtitle">Conjuntos de transações disponíveis para análise.</p>
         </div>
+        @if (canWrite()) {
         <a routerLink="/datasets/importar" class="df-btn df-btn-primary">
           <span aria-hidden="true">+</span>
           Importar dataset
         </a>
+        }
       </header>
 
       @if (erroAcao()) {
-        <div class="alerta erro" role="alert">
+        <div class="df-alerta df-alerta-erro" role="alert">
           <span>{{ erroAcao() }}</span>
-          <button type="button" class="fechar-alerta" aria-label="Fechar aviso" (click)="erroAcao.set(null)">×</button>
+          <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="erroAcao.set(null)">×</button>
         </div>
       }
       @if (sucessoAcao()) {
-        <div class="alerta sucesso" role="status">
+        <div class="df-alerta df-alerta-sucesso" role="status">
           <span>{{ sucessoAcao() }}</span>
-          <button type="button" class="fechar-alerta" aria-label="Fechar aviso" (click)="sucessoAcao.set(null)">×</button>
+          <button type="button" class="df-alerta-fechar" aria-label="Fechar aviso" (click)="sucessoAcao.set(null)">×</button>
         </div>
       }
 
@@ -67,32 +70,34 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
       </div>
 
       @if (carregando() && datasets().length === 0) {
-        <div class="estado-inicial" role="status" aria-live="polite">
-          <span class="spinner" aria-hidden="true"></span>
+        <div class="df-estado" role="status" aria-live="polite">
+          <span class="df-spinner df-spinner-suave" aria-hidden="true"></span>
           <p>Carregando datasets</p>
         </div>
       } @else if (erroLista()) {
-        <div class="estado-inicial estado-erro" role="alert">
+        <div class="df-estado df-estado-erro-texto" role="alert">
           <h2>Não foi possível carregar os datasets</h2>
           <p>{{ erroLista() }}</p>
           <button class="df-btn df-btn-secundario" type="button" (click)="recarregar()">Tentar novamente</button>
         </div>
       } @else if (datasets().length === 0) {
-        <div class="estado-inicial estado-vazio">
-          <span class="icone-vazio" aria-hidden="true">▤</span>
+        <div class="df-estado">
+          <span class="df-estado-icone" aria-hidden="true">▤</span>
           <h2>Nenhum dataset importado</h2>
-          <p>Importe um arquivo CSV para disponibilizar transações no sistema.</p>
-          <a routerLink="/datasets/importar" class="df-btn df-btn-primary">Importar primeiro dataset</a>
+          <p>{{ canWrite() ? 'Importe um arquivo CSV para disponibilizar transações no sistema.' : 'Ainda não há datasets disponíveis para consulta.' }}</p>
+          @if (canWrite()) {
+            <a routerLink="/datasets/importar" class="df-btn df-btn-primary">Importar primeiro dataset</a>
+          }
         </div>
       } @else if (resultadoBusca().length === 0) {
-        <div class="estado-inicial estado-vazio">
+        <div class="df-estado">
           <h2>Nenhum resultado para “{{ termoBusca }}”</h2>
           <p>Revise o texto digitado ou limpe a busca.</p>
           <button type="button" class="df-btn df-btn-secundario" (click)="termoBusca = ''">Limpar busca</button>
         </div>
       } @else {
         <div class="tabela-wrap">
-          <table class="tabela-datasets">
+          <table class="df-table tabela-datasets">
             <thead>
               <tr>
                 <th scope="col">
@@ -136,9 +141,12 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
                   </td>
                   <td class="coluna-acoes">
                     <div class="acoes-linha">
+                      @if (canWrite()) {
                       <button type="button" class="botao-analisar" (click)="analisar(dataset.id_dataset)">
                         <span aria-hidden="true">↗</span> Analisar
                       </button>
+                      }
+                      @if (canWrite()) {
                       <button
                         type="button"
                         class="botao-icone"
@@ -149,6 +157,7 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
                       >
                         <span aria-hidden="true">{{ detalheAberto() === dataset.id_dataset ? '−' : '⋯' }}</span>
                       </button>
+                      }
                       <button
                         type="button"
                         class="botao-icone botao-excluir"
@@ -221,19 +230,19 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
   `,
   styles: [`
     :host { display: block; }
-    .dataset-page { max-width: 1240px; margin: 0 auto; }
     .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
     .busca { display: flex; align-items: center; gap: 9px; width: min(100%, 420px); min-height: 42px; padding: 0 12px; border: 1px solid var(--cor-borda); border-radius: 7px; background: var(--cor-superficie); }
     .busca:focus-within { outline: 2px solid #bfdbfe; border-color: var(--cor-primaria); }
     .icone-busca { color: var(--cor-texto-suave); font-size: 21px; transform: rotate(-20deg); }
     .busca input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--cor-texto); font: inherit; font-size: 13px; }
-    .limpar-busca, .fechar-alerta { border: 0; background: transparent; color: var(--cor-texto-suave); font-size: 19px; cursor: pointer; }
+    .limpar-busca { border: 0; background: transparent; color: var(--cor-texto-suave); font-size: 19px; cursor: pointer; }
     .resumo-lista { display: flex; gap: 7px; color: var(--cor-texto-suave); font-size: 12px; white-space: nowrap; }
     .separador-resumo { color: var(--cor-borda); }
     .tabela-wrap { overflow-x: auto; border: 1px solid var(--cor-borda); border-radius: 7px; background: var(--cor-superficie); }
-    .tabela-datasets, .tabela-amostra { width: 100%; border-collapse: collapse; text-align: left; }
-    .tabela-datasets th { height: 44px; padding: 0 16px; border-bottom: 1px solid var(--cor-borda); background: var(--cor-superficie-suave); color: var(--cor-texto-suave); font-size: 11px; font-weight: 700; text-transform: uppercase; white-space: nowrap; }
-    .tabela-datasets td { height: 66px; padding: 10px 16px; border-bottom: 1px solid var(--cor-borda); font-size: 13px; white-space: nowrap; }
+    .tabela-datasets { width: 100%; }
+    .tabela-datasets th { height: 44px; white-space: nowrap; }
+    .tabela-datasets td { height: 66px; padding: 10px 16px; font-size: 13px; white-space: nowrap; }
+    .tabela-amostra { width: 100%; border-collapse: collapse; text-align: left; }
     .tabela-datasets tbody tr:last-child td { border-bottom: 0; }
     .tabela-datasets tbody tr:hover:not(.linha-detalhe) { background: var(--cor-superficie-suave); }
     .ordenar { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-transform: inherit; cursor: pointer; }
@@ -269,18 +278,7 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
     .sem-data { color: var(--cor-texto-suave); font-size: 12px; }
     .rodape-lista { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 2px; color: var(--cor-texto-suave); font-size: 12px; }
     .fim-lista { margin-left: auto; }
-    .estado-inicial { display: grid; justify-items: center; gap: 12px; padding: 64px 20px; border: 1px solid var(--cor-borda); border-radius: 7px; background: var(--cor-superficie); text-align: center; }
-    .estado-inicial h2 { margin: 0; font-size: 17px; }
-    .estado-inicial p { max-width: 440px; color: var(--cor-texto-suave); font-size: 13px; }
-    .estado-erro { color: var(--cor-erro-texto); }
-    .icone-vazio { color: var(--cor-texto-suave); font-size: 30px; }
-    .spinner { width: 24px; height: 24px; border: 2px solid var(--cor-borda); border-top-color: var(--cor-primaria); border-radius: 50%; animation: girar .75s linear infinite; }
-    .alerta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; padding: 10px 12px; border-radius: 6px; font-size: 13px; }
-    .alerta.erro { background: var(--cor-erro-bg); color: var(--cor-erro-texto); }
-    .alerta.sucesso { background: var(--cor-sucesso-bg); color: var(--cor-sucesso-texto); }
-    .alerta .fechar-alerta { color: inherit; }
     .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-    @keyframes girar { to { transform: rotate(360deg); } }
     @media (max-width: 760px) {
       .toolbar { align-items: stretch; flex-direction: column; gap: 9px; }
       .busca { width: 100%; }
@@ -293,6 +291,7 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
 })
 export class DatasetListComponent implements OnInit {
   private datasetService = inject(DatasetService);
+  private auth = inject(AuthService);
   private router = inject(Router);
 
   datasets = signal<Dataset[]>([]);
@@ -326,6 +325,11 @@ export class DatasetListComponent implements OnInit {
       return comparison * direction;
     });
   });
+
+  canWrite(): boolean {
+    const role = this.auth.usuario()?.papel;
+    return role === 'ADMIN' || role === 'ANALISTA';
+  }
 
   ngOnInit(): void {
     this.carregar();
