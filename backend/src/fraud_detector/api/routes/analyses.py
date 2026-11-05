@@ -74,19 +74,17 @@ def get_analysis_capabilities(
 ):
     try:
         devices = OpenCLIsolationForestExecutor.available_devices()
-    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
-        raise HTTPException(
-            status_code=503, detail=f"Dispositivo OpenCL indisponível: {error}"
-        ) from error
+    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError):
+        return OpenCLCapabilitiesSchema(dispositivos=[])
     return OpenCLCapabilitiesSchema(
         dispositivos=[
             {
                 "tipo": device_type,
                 "plataforma": platform,
                 "nome": device_name,
-                "max_workers": max_workers,
+                "max_work_group_size": max_work_group_size,
             }
-            for device_type, platform, device_name, max_workers in devices
+            for device_type, platform, device_name, max_work_group_size in devices
         ]
     )
 
@@ -130,11 +128,11 @@ def create_analysis(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Não há dispositivo {payload.tipo_dispositivo} OpenCL disponível",
             )
-        if payload.num_workers > selected_device[3]:
+        if payload.work_group_size > selected_device[3]:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"A quantidade de workers excede o limite "
+                    f"O tamanho do work-group excede o limite "
                     f"({selected_device[3]}) do dispositivo "
                     f"{payload.tipo_dispositivo} OpenCL"
                 ),
@@ -147,7 +145,7 @@ def create_analysis(
             dataset_id=payload.id_dataset,
             model_id=payload.id_modelo,
             mode=payload.modo_execucao,
-            workers=payload.num_workers,
+            work_group_size=payload.work_group_size,
             device_type=payload.tipo_dispositivo,
             chunk_size=payload.tamanho_chunk,
             threshold=payload.limiar_decisao,
@@ -408,7 +406,7 @@ def get_transaction_result(
         AvaliacaoHistoricoSchema(
             id_execucao=previous.id_execucao,
             modo_execucao=previous.modo_execucao,
-            num_workers=previous.num_workers,
+            work_group_size=previous.num_workers,
             score_calculado=result.score_anomalia,
             equivalente_ao_baseline=(
                 bool(
@@ -610,7 +608,7 @@ def _execution_response(
         dataset_nome=dataset_name,
         modelo_nome=model_name,
         modo_execucao=execution.modo_execucao,
-        num_workers=execution.num_workers,
+        work_group_size=execution.num_workers,
         tipo_dispositivo=execution.tipo_dispositivo,
         tamanho_chunk=execution.tamanho_chunk,
         limiar_aplicado=execution.limiar_aplicado,

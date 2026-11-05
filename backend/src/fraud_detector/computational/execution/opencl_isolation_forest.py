@@ -4,11 +4,14 @@ from dataclasses import dataclass
 from math import log
 from time import perf_counter
 from typing import Literal, Protocol, cast
+import logging
 
 import numpy as np
 import pyopencl as cl
 from numpy.typing import NDArray
 from sklearn.ensemble import IsolationForest
+
+logger = logging.getLogger(__name__)
 
 
 class OpenCLRuntimeUnavailableError(RuntimeError):
@@ -155,9 +158,7 @@ class OpenCLIsolationForestExecutor:
     @staticmethod
     def available_devices() -> list[tuple[OpenCLDeviceType, str, str, int]]:
         available: list[tuple[OpenCLDeviceType, str, str, int]] = []
-        errors: list[str] = []
-        device_types: tuple[OpenCLDeviceType, ...] = ("CPU", "GPU")
-        for device_type in device_types:
+        for device_type in ("CPU", "GPU"):
             try:
                 executor = OpenCLIsolationForestExecutor(device_type=device_type)
                 _, _, kernel, device = executor._get_runtime()
@@ -165,26 +166,28 @@ class OpenCLIsolationForestExecutor:
                     kernel_max_size = kernel.get_work_group_info(
                         cl.kernel_work_group_info.WORK_GROUP_SIZE, device
                     )
-                except cl.Error as error:
-                    raise OpenCLExecutionError(
-                        f"Não foi possível consultar o limite do dispositivo "
-                        f"{device.name}: {error}"
-                    ) from error
+                    max_work_group_size = min(
+                        int(device.max_work_group_size), int(kernel_max_size), 128
+                    )
+                except Exception as error:
+                    logger.warning(
+                        "Não foi possível consultar o work-group de %s: %s",
+                        device.name,
+                        error,
+                    )
+                    continue
                 available.append(
                     (
                         device_type,
                         device.platform.name,
                         device.name,
-                        min(device.max_work_group_size, kernel_max_size, 128),
+                        max_work_group_size,
                     )
                 )
-            except (OpenCLRuntimeUnavailableError, OpenCLExecutionError) as error:
-                errors.append(f"{device_type}: {error}")
-        if not available:
-            raise OpenCLRuntimeUnavailableError(
-                "Nenhum dispositivo CPU ou GPU OpenCL compatível foi encontrado. "
-                + "; ".join(errors)
-            )
+            except Exception as error:
+                logger.info(
+                    "Dispositivo OpenCL %s indisponível: %s", device_type, error
+                )
         return available
 
     def fit(self, features: NDArray[np.number]) -> OpenCLIsolationForestExecutor:
@@ -366,10 +369,9 @@ class OpenCLIsolationForestExecutor:
 def _get_platforms() -> list[cl.Platform]:
     try:
         return cl.get_platforms()
-    except cl.Error as error:
+    except Exception as error:
         raise OpenCLRuntimeUnavailableError(
-            "Não foi possível enumerar plataformas OpenCL. Verifique se o runtime "
-            f"OpenCL do fabricante está instalado: {error}"
+            "Nenhuma plataforma OpenCL está disponível neste ambiente"
         ) from error
 
 
@@ -380,7 +382,7 @@ def _select_device(device_type: OpenCLDeviceType | None = None) -> cl.Device:
     for platform in platforms:
         try:
             devices.extend(platform.get_devices())
-        except cl.Error as error:
+        except Exception as error:
             errors.append(f"{platform.name}: {error}")
 
     if not devices:

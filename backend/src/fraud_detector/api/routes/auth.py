@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
@@ -33,7 +33,7 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
     response_model=UsuarioRespostaSchema,
     status_code=status.HTTP_201_CREATED,
 )
-async def register(
+def register(
     user_data: UsuarioCadastroSchema,
     db: Session = Depends(get_db),
     current_user: UsuarioModel = Depends(require_role(PapelUsuario.ADMIN)),
@@ -45,7 +45,7 @@ async def register(
 
 
 @auth_router.post("/login", response_model=TokenRespostaSchema)
-async def login(
+def login(
     credentials: UsuarioLoginSchema, db: Session = Depends(get_db)
 ) -> TokenRespostaSchema:
     """Autentica o usuário sem exigir token prévio."""
@@ -55,14 +55,14 @@ async def login(
 
 
 @auth_router.get("/me", response_model=UsuarioRespostaSchema)
-async def get_me(
+def get_me(
     current_user: UsuarioModel = Depends(get_current_user),
 ) -> UsuarioModel:
     return current_user
 
 
 @auth_router.patch("/me", response_model=UsuarioRespostaSchema)
-async def update_me(
+def update_me(
     user_data: UsuarioAtualizacaoSchema,
     current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
@@ -70,3 +70,35 @@ async def update_me(
     repository = RepositorioUsuario(db)
     update_use_case = AtualizarUsuarioAtualUseCase(repository)
     return update_use_case.execute(current_user, user_data)
+
+
+@auth_router.delete("/users/{id_usuario}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    id_usuario: int,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(require_role(PapelUsuario.ADMIN)),
+) -> Response:
+    repository = RepositorioUsuario(db)
+
+    if current_user.id_usuario == id_usuario:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Você não pode excluir a própria conta enquanto está logado",
+        )
+
+    user = repository.get_by_id(id_usuario)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuário não encontrado",
+        )
+
+    if user.ativo and user.papel == PapelUsuario.ADMIN:
+        if repository.count_active_admins() <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Não é possível excluir o último administrador ativo",
+            )
+
+    repository.delete(user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

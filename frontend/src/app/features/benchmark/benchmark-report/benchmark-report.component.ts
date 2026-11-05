@@ -45,7 +45,7 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
               }
               @for (item of b.execucoes; track item.id_benchmark_exec; let i = $index) {
                 <text [attr.x]="40 + i * (360 / (b.execucoes.length - 1 || 1))" y="238" font-size="11" fill="var(--cor-texto-suave)" text-anchor="middle">
-                  {{ item.num_workers }}w
+                  {{ item.work_group_size }}w
                 </text>
               }
             </svg>
@@ -64,7 +64,7 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
                   rx="3"
                 />
                 <text [attr.x]="40 + i * (360 / b.execucoes.length) + (360 / b.execucoes.length) / 2" y="238" font-size="11" fill="var(--cor-texto-suave)" text-anchor="middle">
-                  {{ item.num_workers }}w
+                  {{ item.work_group_size }}w
                 </text>
               }
             </svg>
@@ -108,7 +108,7 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
                       {{ item.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo' }}
                     </td>
                     <td>{{ item.tipo_dispositivo === 'CPU' ? 'Processador' : item.tipo_dispositivo === 'GPU' ? 'GPU' : '—' }}</td>
-                    <td>{{ item.num_workers }}</td>
+                    <td>{{ item.work_group_size }}</td>
                     <td>{{ item.tempo_s | number: '1.2-2' : 'pt-BR' }}</td>
                     @if (b.execucoes.length > 1) {
                       <td [class.roxo]="item.papel !== 'BASELINE'">{{ item.speedup | number: '1.2-2' : 'pt-BR' }}x</td>
@@ -160,12 +160,12 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
   linhaIdeal = computed(() => {
     const execs = this.benchmark()?.execucoes ?? [];
     if (!execs.length) return '';
-    const maxWorkers = Math.max(...execs.map((e) => e.num_workers));
+    const maxWorkGroupSize = Math.max(...execs.map((e) => e.work_group_size));
     return execs
       .map((e, i) => {
         const x = 40 + i * (360 / (execs.length - 1 || 1));
-        const idealSpeedup = e.num_workers;
-        const y = 220 - (idealSpeedup / maxWorkers) * 190;
+        const idealSpeedup = e.work_group_size;
+        const y = 220 - (idealSpeedup / maxWorkGroupSize) * 190;
         return `${x},${y}`;
       })
       .join(' ');

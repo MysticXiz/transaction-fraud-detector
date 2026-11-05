@@ -77,9 +77,9 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
               </label>
             }
             <div class="linha-slider">
-              <span>Workers por grupo: {{ workersSelecionados() }}</span>
+              <span>Tamanho do work-group: {{ workersSelecionados() }}</span>
               @if (dispositivoSelecionado(); as dispositivo) {
-                <span class="nucleos">{{ dispositivo.nome }} · máximo {{ dispositivo.max_workers }}</span>
+                <span class="nucleos">{{ dispositivo.nome }} · máximo de work-group {{ dispositivo.max_work_group_size }}</span>
               } @else if (carregandoCapacidades()) {
                 <span class="nucleos">Detectando recursos OpenCL…</span>
               }
@@ -87,11 +87,11 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
             <input
               type="range"
               min="1"
-              [max]="dispositivoSelecionado()?.max_workers ?? 1"
+              [max]="dispositivoSelecionado()?.max_work_group_size ?? 1"
               [value]="workersSelecionados()"
               class="slider"
               [disabled]="!dispositivoSelecionado()"
-              aria-label="Quantidade de workers para comparação paralela"
+              aria-label="Tamanho do work-group OpenCL"
               (input)="atualizarWorkers($event)"
             />
             <small class="ajuda-workers">Escolha entre processador ou GPU OpenCL disponível no backend. O benchmark executará primeiro a referência sequencial e depois a configuração paralela selecionada.</small>
@@ -170,7 +170,7 @@ export class BenchmarkConfigComponent implements OnInit {
         const selected = capacidades.dispositivos.find((device) => device.tipo === 'GPU')
           ?? capacidades.dispositivos[0];
         this.tipoDispositivoSelecionado.set(selected?.tipo ?? null);
-        this.workersSelecionados.set(Math.min(4, selected?.max_workers ?? 1));
+        this.workersSelecionados.set(Math.min(4, selected?.max_work_group_size ?? 1));
       },
       error: (error: { error?: { detail?: unknown } }) => this.erro.set(
         typeof error.error?.detail === 'string'
@@ -223,7 +223,7 @@ export class BenchmarkConfigComponent implements OnInit {
     const device = this.dispositivoSelecionado();
     if (device) {
       this.workersSelecionados.update((workers) =>
-        Math.min(workers, device.max_workers)
+        Math.min(workers, device.max_work_group_size)
       );
     }
   }
@@ -238,16 +238,16 @@ export class BenchmarkConfigComponent implements OnInit {
     const configuracoes: BenchmarkConfiguracao[] = [
       {
         modo_execucao: 'SEQUENCIAL',
-        num_workers: 1,
+        work_group_size: 1,
         rotulo: 'Sequencial (Baseline)',
       },
     ];
     if (this.modoSelecionado() === 'PARALELO') {
       configuracoes.push({
         modo_execucao: 'PARALELO',
-        num_workers: this.workersSelecionados(),
+        work_group_size: this.workersSelecionados(),
         tipo_dispositivo: this.tipoDispositivoSelecionado(),
-        rotulo: `Paralelo ${this.tipoDispositivoSelecionado()} (${this.workersSelecionados()} workers)`,
+        rotulo: `Paralelo ${this.tipoDispositivoSelecionado()} (work-group ${this.workersSelecionados()})`,
       });
     }
 

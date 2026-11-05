@@ -66,7 +66,7 @@ import { AnalysisService, DetalheTransacaoResponse } from '../../../core/service
             @for (h of d.historico; track h.id_execucao) {
               <tr>
                 <td>#{{ h.id_execucao }}</td>
-                <td>{{ h.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo (' + h.num_workers + ' workers)' }}</td>
+                <td>{{ h.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo (work-group ' + h.work_group_size + ')' }}</td>
                 <td>{{ h.score_calculado | number: '1.4-4' : 'pt-BR' }}</td>
                 <td>
                   @if (h.equivalente_ao_baseline === null) {

@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session
 
 from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     OpenCLDeviceType,
+    OpenCLExecutionError,
     OpenCLIsolationForestExecutor,
+    OpenCLRuntimeUnavailableError,
 )
 from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
@@ -101,7 +103,7 @@ def create_execution(
     dataset_id: int,
     model_id: int,
     mode: ModoExecucao,
-    workers: int,
+    work_group_size: int,
     device_type: OpenCLDeviceType | None,
     chunk_size: int | None,
     threshold: Decimal | None,
@@ -118,7 +120,7 @@ def create_execution(
         raise AnalysisNotFoundError("Dataset não encontrado")
     model = db.query(ModeloDeteccaoModel).filter_by(id_modelo=model_id).first()
     model = _validate_supported_model(model)
-    if mode == ModoExecucao.SEQUENCIAL and workers != 1:
+    if mode == ModoExecucao.SEQUENCIAL and work_group_size != 1:
         raise AnalysisRequestError(
             "A execução sequencial deve usar exatamente um worker"
         )
@@ -132,7 +134,7 @@ def create_execution(
         id_modelo=model_id,
         id_usuario=owner_id,
         modo_execucao=mode,
-        num_workers=workers,
+        num_workers=work_group_size,
         tipo_dispositivo=device_type,
         tamanho_chunk=chunk_size or DEFAULT_CHUNK_SIZE,
         limiar_aplicado=threshold if threshold is not None else model.limiar_padrao,
@@ -246,9 +248,20 @@ def _run_execution(
                 end = min(start + chunk_size, len(rows))
                 chunk_features = features[start:end]
                 if execution.modo_execucao == ModoExecucao.PARALELO:
-                    scores = executor.score_opencl(
-                        chunk_features, work_group_size=work_group_size
-                    )
+                    try:
+                        scores = executor.score_opencl(
+                            chunk_features, work_group_size=work_group_size
+                        )
+                    except (
+                        OpenCLExecutionError,
+                        OpenCLRuntimeUnavailableError,
+                    ) as error:
+                        logger.warning(
+                            "Falha OpenCL na execução %s; usando CPU: %s",
+                            execution_id,
+                            error,
+                        )
+                        scores = executor.score_sequential(chunk_features)
                 else:
                     scores = executor.score_sequential(chunk_features)
                 suspicious = np.asarray(scores) >= threshold

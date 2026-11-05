@@ -66,7 +66,7 @@ import { StyledSelectComponent, StyledSelectOption } from '../../shared/componen
                   <tr>
                     <td>#{{ e.id_execucao }}</td>
                     <td>{{ e.dataset_nome ?? '—' }}</td>
-                    <td>{{ e.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo (' + e.num_workers + 'w)' }}</td>
+                    <td>{{ e.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo (' + e.work_group_size + 'w)' }}</td>
                     <td><app-status-badge [status]="e.status" /></td>
                     <td>{{ e.tempo_total_s ? (e.tempo_total_s | number: '1.2-2' : 'pt-BR') + 's' : '—' }}</td>
                     <td style="text-align:right">

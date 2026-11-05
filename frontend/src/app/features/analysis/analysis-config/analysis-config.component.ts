@@ -99,9 +99,9 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
                 </label>
               }
               <div class="linha-slider">
-                <span>Workers por grupo: {{ form.controls.num_workers.value }}</span>
+                <span>Tamanho do work-group: {{ form.controls.work_group_size.value }}</span>
                 @if (dispositivoSelecionado(); as dispositivo) {
-                  <span class="nucleos">{{ dispositivo.nome }} · máximo {{ dispositivo.max_workers }}</span>
+                                  <span class="nucleos">{{ dispositivo.nome }} · máximo de work-group {{ dispositivo.max_work_group_size }}</span>
                 } @else if (carregandoCapacidades()) {
                   <span class="nucleos">Detectando recursos OpenCL…</span>
                 }
@@ -109,8 +109,8 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
               <input
                 type="range"
                 min="1"
-                [max]="dispositivoSelecionado()?.max_workers ?? 1"
-                formControlName="num_workers"
+                [max]="dispositivoSelecionado()?.max_work_group_size ?? 1"
+                formControlName="work_group_size"
                 class="slider"
                 [disabled]="!dispositivoSelecionado()"
               />
@@ -211,7 +211,7 @@ export class AnalysisConfigComponent implements OnInit {
     id_dataset: [0, Validators.required],
     id_modelo: [0, Validators.required],
     modo_execucao: [ModoExecucao.SEQUENCIAL, Validators.required],
-    num_workers: [1],
+    work_group_size: [1],
     tamanho_chunk: [null as number | null, Validators.min(1)],
     limiar_decisao: [0.5, [Validators.min(0), Validators.max(1)]],
   });
@@ -226,7 +226,7 @@ export class AnalysisConfigComponent implements OnInit {
         const selected = capacidades.dispositivos.find((device) => device.tipo === 'GPU')
           ?? capacidades.dispositivos[0];
         this.tipoDispositivoSelecionado.set(selected?.tipo ?? null);
-        this.form.controls.num_workers.setValue(Math.min(4, selected?.max_workers ?? 1));
+        this.form.controls.work_group_size.setValue(Math.min(4, selected?.max_work_group_size ?? 1));
       },
       error: (error: unknown) => {
         const message =
@@ -254,8 +254,8 @@ export class AnalysisConfigComponent implements OnInit {
     this.tipoDispositivoSelecionado.set(type);
     const device = this.dispositivoSelecionado();
     if (device) {
-      this.form.controls.num_workers.setValue(
-        Math.min(this.form.controls.num_workers.value, device.max_workers)
+      this.form.controls.work_group_size.setValue(
+        Math.min(this.form.controls.work_group_size.value, device.max_work_group_size)
       );
     }
   }
@@ -327,7 +327,7 @@ export class AnalysisConfigComponent implements OnInit {
         id_dataset: valores.id_dataset,
         id_modelo: valores.id_modelo,
         modo_execucao: valores.modo_execucao,
-        num_workers: valores.modo_execucao === ModoExecucao.SEQUENCIAL ? 1 : valores.num_workers,
+        work_group_size: valores.modo_execucao === ModoExecucao.SEQUENCIAL ? 1 : valores.work_group_size,
         tipo_dispositivo:
           valores.modo_execucao === ModoExecucao.PARALELO
             ? this.tipoDispositivoSelecionado() ?? undefined
