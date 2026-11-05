@@ -16,7 +16,7 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
         <h1 class="page-title">Execução #{{ idExecucao }}</h1>
       @if (execucao(); as ex) {
         <p class="page-subtitle">
-          {{ ex.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo · ' + ex.num_workers + ' workers' }}
+          {{ ex.modo_execucao === 'SEQUENCIAL' ? 'Sequencial' : 'Paralelo · work-group ' + ex.work_group_size }}
         </p>
       }
       </div>

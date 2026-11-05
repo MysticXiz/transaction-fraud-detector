@@ -1,16 +1,7 @@
 -- =====================================================================
 -- Carga inicial - Sprint 02
--- Executar apos schema.sql
--- Senhas sao hashes bcrypt de exemplo (ambiente de desenvolvimento).
+-- O usuario administrador inicial e criado pela aplicacao na inicializacao.
 -- =====================================================================
-
-INSERT INTO usuario (nome, email, senha_hash, papel) VALUES
- ('Bruno Severino de Almeida Rocha', 'bruno@uninassau.local',
-  '$2b$12$devPlaceholderHashBrunoXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'ADMIN'),
- ('Rodrigo Amorim Neves',            'rodrigo@uninassau.local',
-  '$2b$12$devPlaceholderHashRodrigoXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'ANALISTA'),
- ('Everson Padilha Ferreira',        'everson@uninassau.local',
-  '$2b$12$devPlaceholderHashEversonXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 'ANALISTA');
 
 INSERT INTO modelo_deteccao
  (nome, algoritmo, versao, hiperparametros, limiar_padrao, caminho_artefato)

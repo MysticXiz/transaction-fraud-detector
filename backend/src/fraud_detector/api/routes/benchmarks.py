@@ -57,19 +57,17 @@ def get_benchmark_capabilities(
 ):
     try:
         devices = OpenCLIsolationForestExecutor.available_devices()
-    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
-        raise HTTPException(
-            status_code=503, detail=f"Dispositivo OpenCL indisponível: {error}"
-        ) from error
+    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError):
+        return OpenCLCapabilitiesSchema(dispositivos=[])
     return OpenCLCapabilitiesSchema(
         dispositivos=[
             {
                 "tipo": device_type,
                 "plataforma": platform,
                 "nome": device_name,
-                "max_workers": max_workers,
+                "max_work_group_size": max_work_group_size,
             }
-            for device_type, platform, device_name, max_workers in devices
+            for device_type, platform, device_name, max_work_group_size in devices
         ]
     )
 
@@ -87,7 +85,7 @@ def create_benchmark(
     ]
     if (
         len(baseline_configs) != 1
-        or baseline_configs[0].num_workers != 1
+        or baseline_configs[0].work_group_size != 1
         or any(
             item.modo_execucao != ModoExecucao.PARALELO
             for item in configs
@@ -147,24 +145,24 @@ def create_benchmark(
                     status_code=422,
                     detail="Selecione CPU ou GPU para a configuração paralela",
                 )
-            max_workers = device_limits.get(device_type)
-            if max_workers is None:
+            max_work_group_size = device_limits.get(device_type)
+            if max_work_group_size is None:
                 raise HTTPException(
                     status_code=422,
                     detail=f"Não há dispositivo {device_type} OpenCL disponível",
                 )
-            if config.num_workers > max_workers:
+            if config.work_group_size > max_work_group_size:
                 raise HTTPException(
                     status_code=422,
                     detail=(
-                        f"A quantidade de workers excede o limite ({max_workers}) "
+                        f"O tamanho do work-group excede o limite ({max_work_group_size}) "
                         f"do dispositivo {device_type} OpenCL"
                     ),
                 )
 
     labels = ", ".join(item.rotulo for item in configs)
     description = (
-        "Comparação OpenCL; num_workers define o tamanho do work-group, "
+        "Comparação OpenCL; work_group_size define o tamanho do work-group, "
         "não o número de processos CPU. Configurações: " + labels
     )[:255]
     benchmark = BenchmarkModel(
@@ -241,7 +239,7 @@ def run_benchmark_in_background(
                 dataset_id=dataset_id,
                 model_id=model_id,
                 mode=config.modo_execucao,
-                workers=config.num_workers,
+                work_group_size=config.work_group_size,
                 device_type=(
                     config.tipo_dispositivo
                     if config.modo_execucao == ModoExecucao.PARALELO
@@ -321,7 +319,7 @@ def run_benchmark_in_background(
                 association.speedup = speedup
                 association.eficiencia = (
                     _positive_decimal(
-                        speedup / Decimal(config.num_workers),
+                        speedup / Decimal(config.work_group_size),
                         scale=4,
                         maximum=Decimal("99.9999"),
                     )
@@ -438,7 +436,7 @@ def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
         Paragraph(f"Status: {response.status}", styles["Normal"]),
         Spacer(1, 8 * mm),
         Paragraph(
-            "Em modo OpenCL, num_workers representa o tamanho do work-group. "
+            "Em modo OpenCL, work_group_size representa o tamanho do work-group. "
             "Speedup e eficiência são medidas observadas, sem garantia de ganho.",
             styles["BodyText"],
         ),
@@ -459,7 +457,7 @@ def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
         [
             item.papel.value,
             item.modo_execucao.value,
-            str(item.num_workers),
+            str(item.work_group_size),
             f"{item.tempo_s:.6f}" if item.tempo_s is not None else "N/D",
             f"{item.speedup:.4f}" if item.speedup is not None else "N/D",
             f"{item.eficiencia:.4f}" if item.eficiencia is not None else "N/D",
@@ -525,7 +523,7 @@ def _benchmark_response(
             papel=association.papel,
             tipo_dispositivo=association.tipo_dispositivo,
             modo_execucao=execution.modo_execucao,
-            num_workers=execution.num_workers,
+            work_group_size=execution.num_workers,
             tempo_s=execution.tempo_total_s,
             speedup=association.speedup,
             eficiencia=association.eficiencia,

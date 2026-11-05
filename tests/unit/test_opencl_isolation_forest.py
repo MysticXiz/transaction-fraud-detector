@@ -110,3 +110,73 @@ def test_opencl_scores_match_sequential_and_preserve_chunk_order():
         result.chunk_ids,
         np.repeat(np.arange(8, dtype=np.int32), [13] * 7 + [9]),
     )
+
+
+def test_get_platforms_treats_platform_not_found_as_runtime_unavailable(monkeypatch):
+    def fail():
+        raise RuntimeError("PLATFORM_NOT_FOUND_KHR")
+
+    monkeypatch.setattr(opencl_isolation_forest.cl, "get_platforms", fail)
+
+    with pytest.raises(OpenCLRuntimeUnavailableError):
+        opencl_isolation_forest._get_platforms()
+
+
+def test_available_devices_returns_only_detected_devices(monkeypatch):
+    cpu = SimpleNamespace(
+        type=opencl_isolation_forest.cl.device_type.CPU,
+        name="CPU teste",
+        platform=SimpleNamespace(name="PoCL"),
+        max_work_group_size=256,
+    )
+    gpu = SimpleNamespace(
+        type=opencl_isolation_forest.cl.device_type.GPU,
+        name="GPU teste",
+        platform=SimpleNamespace(name="CUDA teste"),
+        max_work_group_size=1024,
+    )
+
+    class FakeKernel:
+        def get_work_group_info(self, _info, device):
+            return 256
+
+    def fake_runtime(self):
+        device = cpu if self._device_type == "CPU" else gpu
+        return object(), object(), FakeKernel(), device
+
+    monkeypatch.setattr(
+        OpenCLIsolationForestExecutor,
+        "_get_runtime",
+        fake_runtime,
+    )
+
+    assert OpenCLIsolationForestExecutor.available_devices() == [
+        ("CPU", "PoCL", "CPU teste", 128),
+        ("GPU", "CUDA teste", "GPU teste", 128),
+    ]
+
+
+def test_available_devices_ignores_work_group_query_failure(monkeypatch):
+    cpu = SimpleNamespace(
+        type=opencl_isolation_forest.cl.device_type.CPU,
+        name="CPU teste",
+        platform=SimpleNamespace(name="PoCL"),
+        max_work_group_size=256,
+    )
+
+    class BrokenKernel:
+        def get_work_group_info(self, _info, device):
+            raise RuntimeError("falha simulada")
+
+    def fake_runtime(self):
+        if self._device_type == "GPU":
+            raise OpenCLRuntimeUnavailableError("GPU inexistente")
+        return object(), object(), BrokenKernel(), cpu
+
+    monkeypatch.setattr(
+        OpenCLIsolationForestExecutor,
+        "_get_runtime",
+        fake_runtime,
+    )
+
+    assert OpenCLIsolationForestExecutor.available_devices() == []

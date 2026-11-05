@@ -2,7 +2,7 @@ export interface OpenCLDevice {
   tipo: 'CPU' | 'GPU';
   plataforma: string;
   nome: string;
-  max_workers: number;
+  max_work_group_size: number;
 }
 
 export interface OpenCLCapabilities {

@@ -1,6 +1,5 @@
 import hashlib
 import io
-import os  # noqa: F401
 import sys
 import tempfile
 import threading

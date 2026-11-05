@@ -1,0 +1,17 @@
+**/.git
+**/.venv
+**/node_modules
+**/.angular
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+storage/
+docs/
+database/patches/
+migrations/
+alembic.ini
+iniciar.ps1
+.env
+.env.*
+!.env.example

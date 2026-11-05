@@ -4,7 +4,7 @@ export interface ExecucaoAnaliseCreate {
   id_dataset: number;
   id_modelo: number;
   modo_execucao: ModoExecucao;
-  num_workers: number;
+  work_group_size: number;
   tipo_dispositivo?: 'CPU' | 'GPU' | null;
   tamanho_chunk?: number;
   limiar_decisao?: number;
@@ -17,7 +17,7 @@ export interface ExecucaoAnalise {
   dataset_nome?: string;
   modelo_nome?: string;
   modo_execucao: ModoExecucao;
-  num_workers: number;
+  work_group_size: number;
   tipo_dispositivo?: 'CPU' | 'GPU' | null;
   tamanho_chunk?: number;
   status: StatusExecucao;
@@ -71,7 +71,7 @@ export interface TransacaoDetalhe {
 export interface AvaliacaoHistorico {
   id_execucao: number;
   modo_execucao: ModoExecucao;
-  num_workers: number;
+  work_group_size: number;
   score_calculado: number;
   equivalente_ao_baseline: boolean | null;
 }

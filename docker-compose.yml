@@ -1,37 +1,75 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: fraud_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: fraud
-      POSTGRES_PASSWORD: fraud
-      POSTGRES_DB: fraud_detection
+      POSTGRES_USER: ${POSTGRES_USER:-fraud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraud}
+      POSTGRES_DB: ${POSTGRES_DB:-fraud_detection}
       TZ: America/Recife
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./database/seeds.sql:/docker-entrypoint-initdb.d/02_seeds.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fraud -d fraud_detection"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraud} -d ${POSTGRES_DB:-fraud_detection}"]
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - fraud-network
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: fraud_pgadmin
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
-      - PGADMIN_DEFAULT_PASSWORD=admin
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fraud}:${POSTGRES_PASSWORD:-fraud}@db:5432/${POSTGRES_DB:-fraud_detection}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-development-secret-change-me}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      DATASET_STORAGE_PATH: /app/storage/datasets
+      MAX_DATASET_UPLOAD_BYTES: ${MAX_DATASET_UPLOAD_BYTES:-209715200}
+      DATASET_UPLOAD_CHUNK_BYTES: ${DATASET_UPLOAD_CHUNK_BYTES:-1048576}
+      INGESTION_COPY_BUFFER_BYTES: ${INGESTION_COPY_BUFFER_BYTES:-1048576}
+      INGESTION_PROGRESS_EVERY_ROWS: ${INGESTION_PROGRESS_EVERY_ROWS:-50000}
+      CORS_ORIGINS: '["http://localhost","http://127.0.0.1","http://localhost:4200","http://127.0.0.1:4200"]'
     ports:
-      - "5050:80"
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - dataset-storage:/app/storage/datasets
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - fraud-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-4200}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - fraud-network
+
+networks:
+  fraud-network:
+    driver: bridge
 
 volumes:
   pgdata:
+  dataset-storage:

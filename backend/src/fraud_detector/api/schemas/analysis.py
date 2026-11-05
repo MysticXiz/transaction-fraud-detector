@@ -12,7 +12,7 @@ class CriarExecucaoSchema(BaseModel):
     id_dataset: int = Field(gt=0)
     id_modelo: int = Field(gt=0)
     modo_execucao: ModoExecucao
-    num_workers: int = Field(ge=1, le=128)
+    work_group_size: int = Field(ge=1, le=128)
     tipo_dispositivo: Literal["CPU", "GPU"] | None = None
     tamanho_chunk: int | None = Field(default=None, gt=0)
     limiar_decisao: Decimal | None = Field(default=None, ge=0, le=1)
@@ -27,7 +27,7 @@ class ExecucaoRespostaSchema(BaseModel):
     dataset_nome: str | None = None
     modelo_nome: str | None = None
     modo_execucao: ModoExecucao
-    num_workers: int
+    work_group_size: int
     tipo_dispositivo: Literal["CPU", "GPU"] | None = None
     tamanho_chunk: int | None = None
     limiar_aplicado: Decimal
@@ -90,7 +90,7 @@ class TransacaoDetalheSchema(BaseModel):
 class AvaliacaoHistoricoSchema(BaseModel):
     id_execucao: int
     modo_execucao: ModoExecucao
-    num_workers: int
+    work_group_size: int
     score_calculado: Decimal
     equivalente_ao_baseline: bool | None
 

@@ -2,7 +2,7 @@ import { PapelBenchmark } from './enums';
 
 export interface BenchmarkConfiguracao {
   modo_execucao: 'SEQUENCIAL' | 'PARALELO';
-  num_workers: number;
+  work_group_size: number;
   rotulo: string;
   tipo_dispositivo?: 'CPU' | 'GPU' | null;
 }
@@ -19,7 +19,7 @@ export interface BenchmarkExecucaoItem {
   papel: PapelBenchmark;
   tipo_dispositivo: 'CPU' | 'GPU' | null;
   modo_execucao: string;
-  num_workers: number;
+  work_group_size: number;
   tempo_s: number | null;
   speedup: number | null;
   eficiencia: number | null;
