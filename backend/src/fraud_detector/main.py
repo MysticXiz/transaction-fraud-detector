@@ -6,7 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.fraud_detector.infrastructure import models  # noqa: F401
 from src.fraud_detector.config.settings import settings
-from src.fraud_detector.infrastructure.database.database import SessionLocal, test_connection
+from src.fraud_detector.infrastructure.database.database import (
+    SessionLocal,
+    test_connection,
+)
 from src.fraud_detector.infrastructure.seed_admin import seed_bootstrap_admin
 from src.fraud_detector.api.routes.auth import auth_router
 from src.fraud_detector.api.routes.datasets import datasets_router
@@ -22,6 +25,7 @@ if not logging.getLogger("fraud_detector").handlers:
     )
     logging.getLogger("fraud_detector").addHandler(_handler)
     logging.getLogger("fraud_detector").propagate = True
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

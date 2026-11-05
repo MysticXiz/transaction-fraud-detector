@@ -252,7 +252,10 @@ def _run_execution(
                         scores = executor.score_opencl(
                             chunk_features, work_group_size=work_group_size
                         )
-                    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
+                    except (
+                        OpenCLExecutionError,
+                        OpenCLRuntimeUnavailableError,
+                    ) as error:
                         logger.warning(
                             "Falha OpenCL na execução %s; usando CPU: %s",
                             execution_id,

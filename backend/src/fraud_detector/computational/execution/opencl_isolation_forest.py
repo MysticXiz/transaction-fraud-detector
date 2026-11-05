@@ -177,10 +177,17 @@ class OpenCLIsolationForestExecutor:
                     )
                     continue
                 available.append(
-                    (device_type, device.platform.name, device.name, max_work_group_size)
+                    (
+                        device_type,
+                        device.platform.name,
+                        device.name,
+                        max_work_group_size,
+                    )
                 )
             except Exception as error:
-                logger.info("Dispositivo OpenCL %s indisponível: %s", device_type, error)
+                logger.info(
+                    "Dispositivo OpenCL %s indisponível: %s", device_type, error
+                )
         return available
 
     def fit(self, features: NDArray[np.number]) -> OpenCLIsolationForestExecutor:

@@ -74,7 +74,7 @@ def get_analysis_capabilities(
 ):
     try:
         devices = OpenCLIsolationForestExecutor.available_devices()
-    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError) as error:
+    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError):
         return OpenCLCapabilitiesSchema(dispositivos=[])
     return OpenCLCapabilitiesSchema(
         dispositivos=[

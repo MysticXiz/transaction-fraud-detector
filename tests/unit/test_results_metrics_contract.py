@@ -122,12 +122,12 @@ def test_executor_rejects_invalid_model_hyperparameters(
         analysis_service._create_executor(parameters)
 
 
-def test_analysis_api_request_keeps_frontend_field_names_and_validates_workers():
+def test_analysis_api_request_keeps_frontend_field_names_and_validates_work_group():
     request = CriarExecucaoSchema(
         id_dataset=1,
         id_modelo=1,
         modo_execucao=ModoExecucao.PARALELO,
-        num_workers=8,
+        work_group_size=8,
         tipo_dispositivo="GPU",
         tamanho_chunk=256,
         limiar_decisao=Decimal("0.35"),
@@ -137,7 +137,7 @@ def test_analysis_api_request_keeps_frontend_field_names_and_validates_workers()
         "id_dataset": 1,
         "id_modelo": 1,
         "modo_execucao": ModoExecucao.PARALELO,
-        "num_workers": 8,
+        "work_group_size": 8,
         "tipo_dispositivo": "GPU",
         "tamanho_chunk": 256,
         "limiar_decisao": Decimal("0.35"),
@@ -147,14 +147,14 @@ def test_analysis_api_request_keeps_frontend_field_names_and_validates_workers()
             id_dataset=1,
             id_modelo=1,
             modo_execucao=ModoExecucao.PARALELO,
-            num_workers=129,
+            work_group_size=129,
         )
     with pytest.raises(ValueError):
         CriarExecucaoSchema(
             id_dataset=1,
             id_modelo=1,
             modo_execucao=ModoExecucao.PARALELO,
-            num_workers=6,
+            work_group_size=6,
             tamanho_chunk=0,
         )
 
@@ -225,12 +225,12 @@ def test_benchmark_api_accepts_frontend_configuration_shape():
             "configuracoes": [
                 {
                     "modo_execucao": "SEQUENCIAL",
-                    "num_workers": 1,
+                    "work_group_size": 1,
                     "rotulo": "Sequencial (Baseline Obrigatório)",
                 },
                 {
                     "modo_execucao": "PARALELO",
-                    "num_workers": 8,
+                    "work_group_size": 8,
                     "tipo_dispositivo": "CPU",
                     "rotulo": "Paralelo (8 workers)",
                 },
@@ -278,7 +278,7 @@ def test_benchmark_api_accepts_sequential_only_configuration():
             "configuracoes": [
                 {
                     "modo_execucao": "SEQUENCIAL",
-                    "num_workers": 1,
+                    "work_group_size": 1,
                     "rotulo": "Sequencial (Baseline)",
                 }
             ],
@@ -322,7 +322,7 @@ def test_benchmark_export_generates_a_pdf_document():
                 id_execucao=11,
                 papel=PapelBenchmark.BASELINE,
                 modo_execucao=ModoExecucao.SEQUENCIAL,
-                num_workers=1,
+                work_group_size=1,
                 tempo_s=Decimal("1.25"),
                 speedup=Decimal("1"),
                 eficiencia=Decimal("1"),
@@ -332,7 +332,7 @@ def test_benchmark_export_generates_a_pdf_document():
                 id_execucao=12,
                 papel=PapelBenchmark.COMPARACAO,
                 modo_execucao=ModoExecucao.PARALELO,
-                num_workers=8,
+                work_group_size=8,
                 tempo_s=Decimal("0.75"),
                 speedup=Decimal("1.6667"),
                 eficiencia=Decimal("0.2083"),
