@@ -149,7 +149,7 @@ CREATE TABLE execucao_analise (
         REFERENCES modelo_deteccao (id_modelo) ON DELETE RESTRICT,
     CONSTRAINT fk_execucao_usuario FOREIGN KEY (id_usuario)
         REFERENCES usuario (id_usuario) ON DELETE RESTRICT,
-    CONSTRAINT ck_execucao_workers CHECK (num_workers BETWEEN 1 AND 128),
+    CONSTRAINT ck_execucao_workers CHECK (num_workers BETWEEN 1 AND 4096),
     CONSTRAINT ck_execucao_chunk   CHECK (tamanho_chunk IS NULL OR tamanho_chunk > 0),
     CONSTRAINT ck_execucao_tempos  CHECK (finalizada_em IS NULL OR iniciada_em IS NULL
                                           OR finalizada_em >= iniciada_em),

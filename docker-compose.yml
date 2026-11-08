@@ -37,6 +37,12 @@ services:
       INGESTION_COPY_BUFFER_BYTES: ${INGESTION_COPY_BUFFER_BYTES:-1048576}
       INGESTION_PROGRESS_EVERY_ROWS: ${INGESTION_PROGRESS_EVERY_ROWS:-50000}
       CORS_ORIGINS: '["http://localhost","http://127.0.0.1","http://localhost:4200","http://127.0.0.1:4200"]'
+      # PoCL usa todos os núcleos visíveis ao container quando estas variáveis
+      # NÃO são definidas. Defina-as no .env só se quiser limitar de propósito.
+      POCL_MAX_PU_COUNT: ${POCL_MAX_PU_COUNT:-}
+      POCL_CPU_MAX_THREADS: ${POCL_CPU_MAX_THREADS:-}
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-}
+      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-1}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

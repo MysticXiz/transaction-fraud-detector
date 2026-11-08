@@ -37,6 +37,17 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
       <div class="df-card mini"><p class="rotulo">Throughput</p><p class="valor">{{ metrica()?.throughput_tps | number: '1.0-0' : 'pt-BR' }}/s</p></div>
     </div>
 
+    @if (metrica(); as m) {
+      <div class="grid-resumo">
+        <div class="df-card mini"><p class="rotulo">Leitura do banco</p><p class="valor">{{ m.tempo_leitura_s | number: '1.2-2' : 'pt-BR' }} s</p></div>
+        <div class="df-card mini"><p class="rotulo">Pré-processamento</p><p class="valor">{{ m.tempo_preproc_s | number: '1.2-2' : 'pt-BR' }} s</p></div>
+        <div class="df-card mini"><p class="rotulo">Inferência</p><p class="valor">{{ m.tempo_inferencia_s | number: '1.2-2' : 'pt-BR' }} s</p></div>
+        <div class="df-card mini"><p class="rotulo">Overhead (escrita, etc.)</p><p class="valor">{{ m.tempo_overhead_s | number: '1.2-2' : 'pt-BR' }} s</p></div>
+        <div class="df-card mini"><p class="rotulo">CPU médio</p><p class="valor">{{ m.cpu_percent_medio | number: '1.0-1' : 'pt-BR' }}%{{ m.nucleos_disponiveis ? ' de ' + m.nucleos_disponiveis + ' núcleos' : '' }}</p></div>
+        <div class="df-card mini"><p class="rotulo">Memória de pico</p><p class="valor">{{ m.memoria_pico_mb | number: '1.0-0' : 'pt-BR' }} MB</p></div>
+      </div>
+    }
+
     <div class="df-card sem-padding">
       <form [formGroup]="filtroForm" (ngSubmit)="aplicarFiltro()" class="barra-filtros">
         <label>Escore &gt;</label>
@@ -80,8 +91,15 @@ import { ExecucaoAnalise, MetricaExecucao, ResultadoDeteccao } from '../../../co
       }
 
       <div class="rodape-tabela">
-        <button class="df-btn df-btn-secundario" (click)="exportar('csv')">Exportar CSV</button>
-        <button class="df-btn df-btn-secundario" (click)="exportar('json')">Exportar JSON</button>
+        <button class="df-btn df-btn-secundario" [disabled]="exportando()" (click)="exportar('csv')">
+          {{ exportando() === 'csv' ? 'Exportando…' : 'Exportar CSV' }}
+        </button>
+        <button class="df-btn df-btn-secundario" [disabled]="exportando()" (click)="exportar('json')">
+          {{ exportando() === 'json' ? 'Exportando…' : 'Exportar JSON' }}
+        </button>
+        <button class="df-btn df-btn-secundario" [disabled]="exportando()" (click)="exportar('pdf')">
+          {{ exportando() === 'pdf' ? 'Exportando…' : 'Exportar PDF' }}
+        </button>
       </div>
     </div>
   `,
@@ -113,6 +131,7 @@ export class AnalysisResultsComponent implements OnInit {
   metrica = signal<MetricaExecucao | null>(null);
   resultados = signal<ResultadoDeteccao[]>([]);
   erro = signal<string | null>(null);
+  exportando = signal<'csv' | 'json' | 'pdf' | null>(null);
 
   filtroForm = this.fb.nonNullable.group({
     escoreMinimo: [null as number | null],
@@ -156,14 +175,27 @@ export class AnalysisResultsComponent implements OnInit {
     this.carregar();
   }
 
-  exportar(formato: 'csv' | 'json'): void {
-    this.analysisService.exportarResultados(this.idExecucao, formato).subscribe((blob) => {
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `execucao-${this.idExecucao}-resultados.${formato}`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+  exportar(formato: 'csv' | 'json' | 'pdf'): void {
+    if (this.exportando()) return;
+
+    this.exportando.set(formato);
+    this.erro.set(null);
+    this.analysisService.exportarResultados(this.idExecucao, formato).subscribe({
+      next: (blob) => {
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `analise-${this.idExecucao}-resultados.${formato}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+        this.exportando.set(null);
+      },
+      error: () => {
+        this.exportando.set(null);
+        this.erro.set('Não foi possível exportar os resultados. Atualize a página e tente novamente.');
+      },
     });
   }
 }

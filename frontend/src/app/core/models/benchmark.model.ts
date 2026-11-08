@@ -21,6 +21,7 @@ export interface BenchmarkExecucaoItem {
   modo_execucao: string;
   work_group_size: number;
   tempo_s: number | null;
+  tempo_inferencia_s: number | null;
   speedup: number | null;
   eficiencia: number | null;
 }

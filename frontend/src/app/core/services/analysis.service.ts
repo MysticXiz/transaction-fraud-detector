@@ -49,6 +49,12 @@ export class AnalysisService {
     return this.http.delete<void>(`${this.baseUrl}/${idExecucao}`);
   }
 
+  limparHistorico() {
+    return this.http.delete<{ removidas: number; preservadas_em_andamento: number }>(
+      `${this.baseUrl}/historico`
+    );
+  }
+
   /** Resultados paginados e ordenados por escore (RF06/RF07/RF08). */
   obterResultados(
     idExecucao: number,
@@ -69,7 +75,7 @@ export class AnalysisService {
     );
   }
 
-  exportarResultados(idExecucao: number, formato: 'csv' | 'json') {
+  exportarResultados(idExecucao: number, formato: 'csv' | 'json' | 'pdf') {
     return this.http.get(`${this.baseUrl}/${idExecucao}/resultados/exportar`, {
       params: new HttpParams().set('formato', formato),
       responseType: 'blob',

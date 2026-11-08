@@ -6,7 +6,11 @@ import { finalize } from 'rxjs';
 import { DatasetService } from '../../../core/services/dataset.service';
 import { AnalysisService } from '../../../core/services/analysis.service';
 import { Dataset, ModeloDeteccao } from '../../../core/models/dataset.model';
-import { OpenCLCapabilities, OpenCLDevice } from '../../../core/models/opencl.model';
+import {
+  OpenCLCapabilities,
+  OpenCLCalibrationResult,
+  OpenCLDevice,
+} from '../../../core/models/opencl.model';
 import { ModoExecucao } from '../../../core/models/enums';
 import { OpenClDeviceService } from '../../../core/services/opencl-device.service';
 import { NotificationService } from '../../../core/services/notification.service';
@@ -114,6 +118,22 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
                 class="slider"
                 [disabled]="!dispositivoSelecionado()"
               />
+              @if (dispositivoSelecionado(); as dispositivo) {
+                <div class="recomendacao-opencl">
+                  <span>
+                    Recomendado: work-group {{ dispositivo.work_group_recomendado ?? dispositivo.max_work_group_size }},
+                    chunk {{ dispositivo.chunk_recomendado ?? 'automático' }}
+                  </span>
+                  <button class="df-btn df-btn-secundario" type="button" (click)="usarRecomendado()">Usar recomendado</button>
+                  <button class="df-btn df-btn-secundario" type="button" (click)="calibrarAutomaticamente()" [disabled]="calibrando()">
+                    {{ calibrando() ? 'Calibrando…' : 'Calibrar automaticamente' }}
+                  </button>
+                </div>
+                <small>Work-group é um pacote de transações processado junto; em CPU precisa de vários grupos, em GPU múltiplos de 32/64 costumam funcionar melhor.</small>
+                @if (resultadoCalibracao(); as resultado) {
+                  <small>Calibração: work-group {{ resultado.work_group_size_recomendado }} · chunk {{ resultado.tamanho_chunk_recomendado }} · {{ resultado.explicacao }}</small>
+                }
+              }
               @if (!carregandoCapacidades() && !capacidades()) {
                 <small class="ajuda-workers">Não foi possível detectar dispositivos OpenCL. Tente atualizar a página ou verifique o runtime OpenCL do backend.</small>
               }
@@ -205,6 +225,8 @@ export class AnalysisConfigComponent implements OnInit {
   erro = signal<string | null>(null);
   erroDatasets = signal<string | null>(null);
   erroModelos = signal<string | null>(null);
+  calibrando = signal(false);
+  resultadoCalibracao = signal<OpenCLCalibrationResult | null>(null);
   private notificationService = inject(NotificationService);
 
   form = this.fb.nonNullable.group({
@@ -223,10 +245,16 @@ export class AnalysisConfigComponent implements OnInit {
     ).subscribe({
       next: (capacidades) => {
         this.capacidades.set(capacidades);
-        const selected = capacidades.dispositivos.find((device) => device.tipo === 'GPU')
+        const selected = capacidades.dispositivos.find((device) => device.tipo === 'CPU')
           ?? capacidades.dispositivos[0];
         this.tipoDispositivoSelecionado.set(selected?.tipo ?? null);
-        this.form.controls.work_group_size.setValue(Math.min(4, selected?.max_work_group_size ?? 1));
+        this.form.controls.work_group_size.setValue(
+          selected?.work_group_recomendado
+            ?? Math.min(4, selected?.max_work_group_size ?? 1)
+        );
+        if (selected?.chunk_recomendado) {
+          this.form.controls.tamanho_chunk.setValue(selected.chunk_recomendado);
+        }
       },
       error: (error: unknown) => {
         const message =
@@ -255,9 +283,55 @@ export class AnalysisConfigComponent implements OnInit {
     const device = this.dispositivoSelecionado();
     if (device) {
       this.form.controls.work_group_size.setValue(
-        Math.min(this.form.controls.work_group_size.value, device.max_work_group_size)
+        Math.min(
+          device.work_group_recomendado
+            ?? this.form.controls.work_group_size.value,
+          device.max_work_group_size
+        )
       );
+      if (device.chunk_recomendado) {
+        this.form.controls.tamanho_chunk.setValue(device.chunk_recomendado);
+      }
     }
+  }
+
+  usarRecomendado(): void {
+    const device = this.dispositivoSelecionado();
+    if (!device) return;
+    this.form.controls.work_group_size.setValue(
+      Math.min(
+        device.work_group_recomendado ?? 1,
+        device.max_work_group_size
+      )
+    );
+    if (device.chunk_recomendado) {
+      this.form.controls.tamanho_chunk.setValue(device.chunk_recomendado);
+    }
+  }
+
+  calibrarAutomaticamente(): void {
+    const device = this.dispositivoSelecionado();
+    if (!device) return;
+    this.calibrando.set(true);
+    this.openClDeviceService.calibrar({
+      tipo_dispositivo: device.tipo,
+      tempo_maximo_s: 5,
+    }).pipe(finalize(() => this.calibrando.set(false))).subscribe({
+      next: (resultado) => {
+        this.resultadoCalibracao.set(resultado);
+        this.form.controls.work_group_size.setValue(
+          Math.min(resultado.work_group_size_recomendado, device.max_work_group_size)
+        );
+        this.form.controls.tamanho_chunk.setValue(resultado.tamanho_chunk_recomendado);
+      },
+      error: (error: unknown) => {
+        this.erro.set(
+          error instanceof HttpErrorResponse && typeof error.error?.detail === 'string'
+            ? error.error.detail
+            : 'Não foi possível calibrar o OpenCL.'
+        );
+      },
+    });
   }
 
   carregarDados(): void {

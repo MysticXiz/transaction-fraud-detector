@@ -8,7 +8,11 @@ import { Dataset, ModeloDeteccao } from '../../../core/models/dataset.model';
 import {
   BenchmarkConfiguracao,
 } from '../../../core/models/benchmark.model';
-import { OpenCLCapabilities, OpenCLDevice } from '../../../core/models/opencl.model';
+import {
+  OpenCLCapabilities,
+  OpenCLCalibrationResult,
+  OpenCLDevice,
+} from '../../../core/models/opencl.model';
 import { OpenClDeviceService } from '../../../core/services/opencl-device.service';
 import { StyledSelectComponent, StyledSelectOption } from '../../../shared/components/styled-select/styled-select.component';
 
@@ -22,7 +26,7 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
         <div class="page-header__copy">
           <p class="page-eyebrow">Desempenho</p>
           <h1 class="page-title">Executar Benchmark</h1>
-          <p class="page-subtitle">Execute em modo sequencial ou compare o paralelo com a referência sequencial.</p>
+          <p class="page-subtitle">Execute uma comparação completa ou somente o modo paralelo.</p>
         </div>
       </header>
 
@@ -38,21 +42,20 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
 
         <hr class="separador" />
 
-        <label class="df-label">Modo de execução</label>
-        <div class="opcoes-modo" role="radiogroup" aria-label="Modo de execução do benchmark">
+        <label class="df-label">Tipo de benchmark</label>
+        <div class="opcoes-modo" role="radiogroup" aria-label="Tipo de benchmark">
           <label class="opcao-modo">
-            <input type="radio" name="modo-benchmark" value="SEQUENCIAL" [checked]="modoSelecionado() === 'SEQUENCIAL'" (change)="selecionarModo('SEQUENCIAL')" />
-            <span>Sequencial</span>
-            <small>Executa a referência sequencial.</small>
+            <input type="radio" name="tipo-benchmark" value="COMPARATIVO" [checked]="tipoBenchmarkSelecionado() === 'COMPARATIVO'" (change)="selecionarTipoBenchmark('COMPARATIVO')" />
+            <span>Comparativo</span>
+            <small>Executa o sequencial como baseline e depois o paralelo.</small>
           </label>
           <label class="opcao-modo">
-            <input type="radio" name="modo-benchmark" value="PARALELO" [checked]="modoSelecionado() === 'PARALELO'" (change)="selecionarModo('PARALELO')" />
-            <span>Paralelo</span>
-            <small>Compara o resultado paralelo com a referência sequencial.</small>
+            <input type="radio" name="tipo-benchmark" value="PARALELO_APENAS" [checked]="tipoBenchmarkSelecionado() === 'PARALELO_APENAS'" (change)="selecionarTipoBenchmark('PARALELO_APENAS')" />
+            <span>Somente paralelo</span>
+            <small>Executa apenas a configuração OpenCL selecionada.</small>
           </label>
         </div>
 
-        @if (modoSelecionado() === 'PARALELO') {
           <div class="caixa-workers">
             @if (capacidades(); as info) {
               <label class="seletor-dispositivo">
@@ -77,7 +80,7 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
               </label>
             }
             <div class="linha-slider">
-              <span>Tamanho do work-group: {{ workersSelecionados() }}</span>
+              <span>Tamanho do work-group: {{ workGroupSelecionado() }}</span>
               @if (dispositivoSelecionado(); as dispositivo) {
                 <span class="nucleos">{{ dispositivo.nome }} · máximo de work-group {{ dispositivo.max_work_group_size }}</span>
               } @else if (carregandoCapacidades()) {
@@ -88,15 +91,30 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
               type="range"
               min="1"
               [max]="dispositivoSelecionado()?.max_work_group_size ?? 1"
-              [value]="workersSelecionados()"
+              [value]="workGroupSelecionado()"
               class="slider"
               [disabled]="!dispositivoSelecionado()"
               aria-label="Tamanho do work-group OpenCL"
-              (input)="atualizarWorkers($event)"
+              (input)="atualizarWorkGroup($event)"
             />
-            <small class="ajuda-workers">Escolha entre processador ou GPU OpenCL disponível no backend. O benchmark executará primeiro a referência sequencial e depois a configuração paralela selecionada.</small>
+            @if (dispositivoSelecionado(); as dispositivo) {
+              <div>
+                <button type="button" class="df-btn df-btn-secundario" (click)="usarRecomendado()">Usar recomendado</button>
+                <button type="button" class="df-btn df-btn-secundario" (click)="calibrarAutomaticamente()" [disabled]="calibrando()">
+                  {{ calibrando() ? 'Calibrando…' : 'Calibrar automaticamente' }}
+                </button>
+                <small class="ajuda-workers">
+                  Recomendado: work-group {{ dispositivo.work_group_recomendado ?? dispositivo.max_work_group_size }},
+                  chunk {{ dispositivo.chunk_recomendado ?? 'automático' }}
+                </small>
+              </div>
+            }
+            <small class="ajuda-workers">
+              {{ tipoBenchmarkSelecionado() === 'COMPARATIVO'
+                ? 'O benchmark executará primeiro o baseline sequencial e depois a configuração paralela selecionada.'
+                : 'O benchmark executará somente a configuração paralela selecionada, sem baseline sequencial.' }}
+            </small>
           </div>
-        }
 
         @if (erro()) {
           <div class="df-alerta df-alerta-erro" style="margin-top:16px" role="alert">
@@ -154,10 +172,13 @@ export class BenchmarkConfigComponent implements OnInit {
   capacidades = signal<OpenCLCapabilities | null>(null);
   tipoDispositivoSelecionado = signal<'CPU' | 'GPU' | null>(null);
   carregandoCapacidades = signal(true);
-  workersSelecionados = signal(1);
+  workGroupSelecionado = signal(1);
   modoSelecionado = signal<'SEQUENCIAL' | 'PARALELO'>('SEQUENCIAL');
+  tipoBenchmarkSelecionado = signal<'COMPARATIVO' | 'PARALELO_APENAS'>('COMPARATIVO');
   datasetControl = this.fb.nonNullable.control(0);
   carregando = signal(false);
+  calibrando = signal(false);
+  resultadoCalibracao = signal<OpenCLCalibrationResult | null>(null);
   carregandoDatasets = signal(true);
   erro = signal<string | null>(null);
 
@@ -167,10 +188,13 @@ export class BenchmarkConfigComponent implements OnInit {
     ).subscribe({
       next: (capacidades) => {
         this.capacidades.set(capacidades);
-        const selected = capacidades.dispositivos.find((device) => device.tipo === 'GPU')
+        const selected = capacidades.dispositivos.find((device) => device.tipo === 'CPU')
           ?? capacidades.dispositivos[0];
         this.tipoDispositivoSelecionado.set(selected?.tipo ?? null);
-        this.workersSelecionados.set(Math.min(4, selected?.max_work_group_size ?? 1));
+        this.workGroupSelecionado.set(
+          selected?.work_group_recomendado
+            ?? Math.min(4, selected?.max_work_group_size ?? 1)
+        );
       },
       error: (error: { error?: { detail?: unknown } }) => this.erro.set(
         typeof error.error?.detail === 'string'
@@ -197,13 +221,46 @@ export class BenchmarkConfigComponent implements OnInit {
     });
   }
 
+  usarRecomendado(): void {
+    const device = this.dispositivoSelecionado();
+    if (!device) return;
+    this.workGroupSelecionado.set(Math.min(
+      device.work_group_recomendado ?? 1,
+      device.max_work_group_size
+    ));
+  }
+
+  calibrarAutomaticamente(): void {
+    const device = this.dispositivoSelecionado();
+    if (!device) return;
+    this.calibrando.set(true);
+    this.openClDeviceService.calibrar({
+      tipo_dispositivo: device.tipo,
+      tempo_maximo_s: 5,
+    }).pipe(finalize(() => this.calibrando.set(false))).subscribe({
+      next: (resultado) => {
+        this.resultadoCalibracao.set(resultado);
+        this.workGroupSelecionado.set(Math.min(
+          resultado.work_group_size_recomendado,
+          device.max_work_group_size
+        ));
+      },
+      error: () => this.erro.set('Não foi possível calibrar o OpenCL.'),
+    });
+  }
+
   selecionarModo(modo: 'SEQUENCIAL' | 'PARALELO'): void {
     this.modoSelecionado.set(modo);
   }
 
-  atualizarWorkers(event: Event): void {
-    const workers = Number((event.target as HTMLInputElement).value);
-    this.workersSelecionados.set(workers);
+  selecionarTipoBenchmark(tipo: 'COMPARATIVO' | 'PARALELO_APENAS'): void {
+    this.tipoBenchmarkSelecionado.set(tipo);
+    this.modoSelecionado.set('PARALELO');
+  }
+
+  atualizarWorkGroup(event: Event): void {
+    const workGroupSize = Number((event.target as HTMLInputElement).value);
+    this.workGroupSelecionado.set(workGroupSize);
   }
 
   dispositivoSelecionado(): OpenCLDevice | undefined {
@@ -222,9 +279,10 @@ export class BenchmarkConfigComponent implements OnInit {
     this.tipoDispositivoSelecionado.set(type);
     const device = this.dispositivoSelecionado();
     if (device) {
-      this.workersSelecionados.update((workers) =>
-        Math.min(workers, device.max_work_group_size)
-      );
+      this.workGroupSelecionado.set(Math.min(
+        device.work_group_recomendado ?? this.workGroupSelecionado(),
+        device.max_work_group_size
+      ));
     }
   }
 
@@ -235,21 +293,20 @@ export class BenchmarkConfigComponent implements OnInit {
       return;
     }
 
-    const configuracoes: BenchmarkConfiguracao[] = [
-      {
+    const configuracoes: BenchmarkConfiguracao[] = [];
+    if (this.tipoBenchmarkSelecionado() === 'COMPARATIVO') {
+      configuracoes.push({
         modo_execucao: 'SEQUENCIAL',
         work_group_size: 1,
         rotulo: 'Sequencial (Baseline)',
-      },
-    ];
-    if (this.modoSelecionado() === 'PARALELO') {
-      configuracoes.push({
-        modo_execucao: 'PARALELO',
-        work_group_size: this.workersSelecionados(),
-        tipo_dispositivo: this.tipoDispositivoSelecionado(),
-        rotulo: `Paralelo ${this.tipoDispositivoSelecionado()} (work-group ${this.workersSelecionados()})`,
       });
     }
+    configuracoes.push({
+      modo_execucao: 'PARALELO',
+      work_group_size: this.workGroupSelecionado(),
+      tipo_dispositivo: this.tipoDispositivoSelecionado(),
+      rotulo: `Paralelo ${this.tipoDispositivoSelecionado()} (work-group ${this.workGroupSelecionado()})`,
+    });
 
     this.carregando.set(true);
     this.erro.set(null);

@@ -22,6 +22,16 @@ import { StyledSelectComponent, StyledSelectOption } from '../../shared/componen
           <h1 class="page-title">Histórico de Execuções</h1>
           <p class="page-subtitle">Todas as análises executadas, com filtros por status e modo.</p>
         </div>
+        @if (canWrite()) {
+          <button
+            type="button"
+            class="botao-limpar-historico"
+            [disabled]="limpando() || carregando()"
+            (click)="limparHistorico()"
+          >
+            {{ limpando() ? 'Limpando…' : 'Limpar histórico' }}
+          </button>
+        }
       </header>
 
       @if (erro()) {
@@ -110,6 +120,9 @@ import { StyledSelectComponent, StyledSelectOption } from '../../shared/componen
       .carregando-lista { display: flex; align-items: center; gap: 10px; padding: 32px 24px; color: var(--cor-texto-suave); font-size: 13px; }
       .sem-borda { border: 0; border-radius: 0; padding: 48px 20px; }
       .acoes-execucao { display: inline-flex; align-items: center; justify-content: flex-end; gap: 14px; }
+      .botao-limpar-historico { align-self: flex-start; padding: 9px 12px; border: 1px solid var(--cor-erro-texto); border-radius: 7px; background: transparent; color: var(--cor-erro-texto); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+      .botao-limpar-historico:hover:not(:disabled) { background: var(--cor-erro-bg); }
+      .botao-limpar-historico:disabled { opacity: .5; cursor: not-allowed; }
       .botao-excluir { padding: 4px 8px; border: 1px solid var(--cor-erro-texto); border-radius: 5px; background: transparent; color: var(--cor-erro-texto); font: inherit; font-size: 12px; cursor: pointer; }
       .botao-excluir:hover:not(:disabled) { background: var(--cor-erro-bg); }
       .botao-excluir:disabled { opacity: .5; cursor: not-allowed; }
@@ -133,6 +146,7 @@ export class HistoryComponent implements OnInit {
   erro = signal<string | null>(null);
   sucesso = signal<string | null>(null);
   excluindoId = signal<number | null>(null);
+  limpando = signal(false);
 
   opcoesStatus: StyledSelectOption[] = [
     { valor: 'TODOS', rotulo: 'Todos os Status' },
@@ -170,6 +184,41 @@ export class HistoryComponent implements OnInit {
         this.execucoes.set([]);
         this.erro.set('Não foi possível carregar o histórico de execuções.');
         this.carregando.set(false);
+      },
+    });
+  }
+
+  limparHistorico(): void {
+    if (this.limpando()) return;
+    const confirmado = window.confirm(
+      'Limpar todo o histórico? Serão excluídas todas as execuções finalizadas, canceladas ou com falha, junto dos resultados e métricas. Execuções em andamento serão preservadas.'
+    );
+    if (!confirmado) return;
+
+    this.limpando.set(true);
+    this.erro.set(null);
+    this.sucesso.set(null);
+    this.analysisService.limparHistorico().subscribe({
+      next: (resultado) => {
+        this.limpando.set(false);
+        this.carregar();
+        if (resultado.removidas === 0) {
+          this.sucesso.set(
+            resultado.preservadas_em_andamento > 0
+              ? 'Não havia execuções finalizadas para remover. As execuções em andamento foram preservadas.'
+              : 'Não havia execuções para remover.'
+          );
+          return;
+        }
+        this.sucesso.set(
+          resultado.preservadas_em_andamento > 0
+            ? `${resultado.removidas} execução(ões) excluída(s). ${resultado.preservadas_em_andamento} execução(ões) em andamento foram preservadas.`
+            : `${resultado.removidas} execução(ões) excluída(s).`
+        );
+      },
+      error: () => {
+        this.limpando.set(false);
+        this.erro.set('Não foi possível limpar o histórico. Atualize a página e tente novamente.');
       },
     });
   }

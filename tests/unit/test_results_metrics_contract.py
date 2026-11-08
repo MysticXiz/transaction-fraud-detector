@@ -1,11 +1,14 @@
 import csv
 import io
 import json
+import queue
+import threading
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
 from src.fraud_detector.api.schemas.analysis import CriarExecucaoSchema
 from src.fraud_detector.api.schemas.analysis import MetricaRespostaSchema
@@ -142,12 +145,20 @@ def test_analysis_api_request_keeps_frontend_field_names_and_validates_work_grou
         "tamanho_chunk": 256,
         "limiar_decisao": Decimal("0.35"),
     }
+    automatic = CriarExecucaoSchema(
+        id_dataset=1,
+        id_modelo=1,
+        modo_execucao=ModoExecucao.PARALELO,
+        tipo_dispositivo="CPU",
+    )
+    assert automatic.work_group_size is None
+    assert automatic.tamanho_chunk is None
     with pytest.raises(ValueError):
         CriarExecucaoSchema(
             id_dataset=1,
             id_modelo=1,
             modo_execucao=ModoExecucao.PARALELO,
-            work_group_size=129,
+            work_group_size=4097,
         )
     with pytest.raises(ValueError):
         CriarExecucaoSchema(
@@ -189,6 +200,7 @@ def test_all_mutating_api_routes_require_write_access():
         ("POST", "/analises"),
         ("POST", "/analises/{execution_id}/cancelar"),
         ("DELETE", "/analises/{execution_id}"),
+        ("DELETE", "/analises/historico"),
         ("POST", "/benchmarks"),
         ("POST", "/benchmarks/{benchmark_id}/cancelar"),
         ("POST", "/transactions"),
@@ -270,6 +282,27 @@ def test_benchmark_api_accepts_frontend_configuration_shape():
     }.issubset(Base.metadata.tables)
 
 
+def test_benchmark_api_accepts_parallel_only_configuration():
+    payload = CriarBenchmarkSchema.model_validate(
+        {
+            "id_dataset": 2,
+            "id_modelo": 1,
+            "configuracoes": [
+                {
+                    "modo_execucao": "PARALELO",
+                    "work_group_size": 512,
+                    "tipo_dispositivo": "CPU",
+                    "rotulo": "Somente paralelo CPU",
+                }
+            ],
+        }
+    )
+
+    assert len(payload.configuracoes) == 1
+    assert payload.configuracoes[0].modo_execucao == ModoExecucao.PARALELO
+    assert payload.configuracoes[0].work_group_size == 512
+
+
 def test_benchmark_api_accepts_sequential_only_configuration():
     payload = CriarBenchmarkSchema.model_validate(
         {
@@ -345,6 +378,17 @@ def test_benchmark_export_generates_a_pdf_document():
     assert report.startswith(b"%PDF-")
 
 
+def test_export_route_precedes_dynamic_transaction_route():
+    routes = [
+        route.path
+        for route in analyses_router.routes
+        if getattr(route, "methods", set()) and "GET" in route.methods
+    ]
+    export_index = routes.index("/analises/{execution_id}/resultados/exportar")
+    detail_index = routes.index("/analises/{execution_id}/resultados/{transaction_id}")
+    assert export_index < detail_index
+
+
 def test_result_exports_stream_json_and_csv_with_transaction_features(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -396,8 +440,143 @@ def test_result_exports_stream_json_and_csv_with_transaction_features(
     csv_output = list(
         csv.DictReader(io.StringIO("".join(analysis_routes._stream_csv_results(4))))
     )
+    pdf_output = analysis_routes._render_analysis_pdf(4)
 
     assert json_output[0]["atributos"] == {"V1": 0.25}
     assert json_output[0]["score_anomalia"] == 0.875
     assert json.loads(csv_output[0]["atributos"]) == {"V1": 0.25}
     assert csv_output[0]["is_suspeita"] == "True"
+    assert pdf_output.startswith(b"%PDF-")
+
+
+def test_result_writer_count_is_capped_at_four(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(analysis_service, "available_cpu_capacity", lambda: 12)
+
+    assert analysis_service._result_writer_count() == 4
+
+
+def test_result_writer_uses_binary_copy(monkeypatch: pytest.MonkeyPatch):
+    written_buffers: list[bytes] = []
+    copy_options: list[str] = []
+
+    class FakeCopy:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def set_types(self, types):
+            copy_options.append(",".join(types))
+
+        def write(self, buffer):
+            written_buffers.append(buffer)
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def copy(self, statement):
+            assert "FORMAT BINARY" in statement
+            return FakeCopy()
+
+    class FakeConnection:
+        driver_connection: object = SimpleNamespace()
+
+        def cursor(self):
+            return FakeCursor()
+
+    fake_connection = FakeConnection()
+    fake_driver_connection = SimpleNamespace(cursor=fake_connection.cursor)
+
+    class FakeSession:
+        def connection(self):
+            return SimpleNamespace(connection=fake_driver_connection)
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(analysis_service, "SessionLocal", FakeSession)
+    writer_queue: queue.Queue[object] = queue.Queue()
+    writer_errors: list[BaseException] = []
+    item, suspicious = analysis_service._create_result_writer_item(
+        7,
+        np.array([10, 11], dtype=np.int64),
+        np.array([0.75, 0.25], dtype=np.float32),
+        0.5,
+        2,
+    )
+    writer_queue.put(item)
+    writer_queue.put(analysis_service._WRITER_STOP)
+
+    analysis_service._result_writer(
+        writer_queue,
+        writer_errors,
+        threading.Lock(),
+    )
+
+    assert not writer_errors
+    assert copy_options == ["int4,int8,numeric,bool,numeric,int4"]
+    assert len(written_buffers) == 1
+    assert written_buffers[0].startswith(b"PGCOPY\n\xff\r\n\x00")
+    assert suspicious.tolist() == [True, False]
+
+
+def test_result_writer_records_first_error(monkeypatch: pytest.MonkeyPatch):
+    class FakeCopy:
+        def __enter__(self):
+            raise RuntimeError("falha simulada no COPY")
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def copy(self, _statement):
+            return FakeCopy()
+
+    fake_driver_connection = SimpleNamespace(cursor=lambda: FakeCursor())
+
+    class FakeSession:
+        def connection(self):
+            return SimpleNamespace(connection=fake_driver_connection)
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(analysis_service, "SessionLocal", FakeSession)
+    writer_queue: queue.Queue[object] = queue.Queue()
+    writer_errors: list[BaseException] = []
+    item, _ = analysis_service._create_result_writer_item(
+        7,
+        np.array([10], dtype=np.int64),
+        np.array([0.75], dtype=np.float32),
+        0.5,
+        2,
+    )
+    writer_queue.put(item)
+
+    analysis_service._result_writer(writer_queue, writer_errors, threading.Lock())
+
+    assert len(writer_errors) == 1
+    assert "falha simulada" in str(writer_errors[0])

@@ -11,7 +11,7 @@ export class BenchmarkService {
   private http = inject(HttpClient);
   private baseUrl = `${environment.apiUrl}/benchmarks`;
 
-  /** Dispara a bateria completa: baseline sequencial + configurações paralelas selecionadas (RF09/PB12). */
+  /** Dispara um benchmark comparativo ou somente paralelo conforme as configurações enviadas. */
   executarBateria(payload: BenchmarkCreate) {
     return this.http.post<Benchmark>(this.baseUrl, payload);
   }

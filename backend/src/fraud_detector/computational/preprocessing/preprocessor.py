@@ -123,5 +123,9 @@ class Preprocessor:
 
     @staticmethod
     def _numeric_values(data: pd.DataFrame, features: Sequence[str]) -> pd.DataFrame:
-        numeric = data.loc[:, list(features)].apply(pd.to_numeric, errors="coerce")
-        return numeric.replace([np.inf, -np.inf], np.nan)
+        columns = {
+            name: pd.to_numeric(data[name], errors="coerce") for name in features
+        }
+        numeric = pd.DataFrame(columns, index=data.index)
+        numeric.replace([np.inf, -np.inf], np.nan, inplace=True)
+        return numeric
