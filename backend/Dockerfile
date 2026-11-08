@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libopencl1 ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd curl \
+    && apt-get install -y --no-install-recommends build-essential libopencl1 ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd clinfo curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

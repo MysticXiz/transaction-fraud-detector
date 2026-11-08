@@ -20,7 +20,10 @@ from src.fraud_detector.api.schemas.benchmark import (
     BenchmarkRespostaSchema,
     CriarBenchmarkSchema,
 )
-from src.fraud_detector.api.schemas.opencl import OpenCLCapabilitiesSchema
+from src.fraud_detector.api.schemas.opencl import (
+    OpenCLCapabilitiesSchema,
+    OpenCLDeviceSchema,
+)
 from src.fraud_detector.application.analysis_service import (
     create_execution,
     run_execution,
@@ -40,6 +43,7 @@ from src.fraud_detector.infrastructure.models.benchmark import (
     BenchmarkExecucaoModel,
     BenchmarkModel,
 )
+from src.fraud_detector.infrastructure.models.execution import MetricaExecucaoModel
 from src.fraud_detector.infrastructure.models.dataset import DatasetModel
 from src.fraud_detector.infrastructure.models.detection_model import (
     ModeloDeteccaoModel,
@@ -49,6 +53,30 @@ from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
 logger = logging.getLogger(__name__)
+
+
+def _benchmark_device_capability(
+    device_type: str,
+    platform: str,
+    device_name: str,
+    max_work_group_size: int,
+) -> OpenCLDeviceSchema:
+    recommendation = OpenCLIsolationForestExecutor.recommend_for_device(
+        device_type="GPU" if device_type == "GPU" else "CPU",
+    )
+    return OpenCLDeviceSchema(
+        tipo=device_type,
+        plataforma=platform,
+        nome=device_name,
+        max_work_group_size=max_work_group_size,
+        work_group_recomendado=int(recommendation["work_group_recomendado"]),
+        chunk_recomendado=int(recommendation["chunk_recomendado"]),
+        preferred_work_group_multiple=int(
+            recommendation["preferred_work_group_multiple"]
+        ),
+        unidades_computacao=int(recommendation["max_compute_units"]),
+        local_mem_size=int(recommendation["local_mem_size"]),
+    )
 
 
 @benchmarks_router.get("/capacidades", response_model=OpenCLCapabilitiesSchema)
@@ -61,12 +89,12 @@ def get_benchmark_capabilities(
         return OpenCLCapabilitiesSchema(dispositivos=[])
     return OpenCLCapabilitiesSchema(
         dispositivos=[
-            {
-                "tipo": device_type,
-                "plataforma": platform,
-                "nome": device_name,
-                "max_work_group_size": max_work_group_size,
-            }
+            _benchmark_device_capability(
+                device_type,
+                platform,
+                device_name,
+                max_work_group_size,
+            )
             for device_type, platform, device_name, max_work_group_size in devices
         ]
     )
@@ -80,23 +108,33 @@ def create_benchmark(
     db: Session = Depends(get_db),
 ):
     configs = payload.configuracoes
+    for config in configs:
+        if (
+            config.modo_execucao == ModoExecucao.SEQUENCIAL
+            and config.work_group_size is None
+        ):
+            config.work_group_size = 1
     baseline_configs = [
         item for item in configs if item.modo_execucao == ModoExecucao.SEQUENCIAL
     ]
-    if (
-        len(baseline_configs) != 1
-        or baseline_configs[0].work_group_size != 1
-        or any(
-            item.modo_execucao != ModoExecucao.PARALELO
-            for item in configs
-            if item is not baseline_configs[0]
-        )
-    ):
+    parallel_configs = [
+        item for item in configs if item.modo_execucao == ModoExecucao.PARALELO
+    ]
+    if len(baseline_configs) > 1:
         raise HTTPException(
             status_code=422,
-            detail="O benchmark deve conter uma configuração sequencial (1 worker), podendo incluir configurações paralelas adicionais",
+            detail="O benchmark pode conter apenas uma configuração sequencial (baseline)",
         )
-
+    if baseline_configs and baseline_configs[0].work_group_size != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="O baseline sequencial deve usar work-group igual a 1",
+        )
+    if not baseline_configs and not parallel_configs:
+        raise HTTPException(
+            status_code=422,
+            detail="O benchmark deve conter ao menos uma configuração de execução",
+        )
     dataset = (
         db.query(DatasetModel)
         .filter_by(
@@ -151,6 +189,12 @@ def create_benchmark(
                     status_code=422,
                     detail=f"Não há dispositivo {device_type} OpenCL disponível",
                 )
+            if config.work_group_size is None:
+                recommendation = OpenCLIsolationForestExecutor.recommend_for_device(
+                    device_type,
+                    dataset_size=dataset.total_registros or 50_000,
+                )
+                config.work_group_size = int(recommendation["work_group_recomendado"])
             if config.work_group_size > max_work_group_size:
                 raise HTTPException(
                     status_code=422,
@@ -215,6 +259,11 @@ def run_benchmark_in_background(
         configurations = [
             BenchmarkConfiguracaoSchema.model_validate(item) for item in configs
         ]
+        dataset = (
+            db.query(DatasetModel)
+            .filter_by(id_dataset=dataset_id, id_usuario=owner_id)
+            .first()
+        )
         ordered_configs = [
             item
             for item in configurations
@@ -225,7 +274,6 @@ def run_benchmark_in_background(
             for item in configurations
             if item.modo_execucao == ModoExecucao.PARALELO
         )
-
         for config in ordered_configs:
             db.refresh(benchmark)
             if benchmark.status == "CANCELAMENTO_SOLICITADO":
@@ -245,7 +293,12 @@ def run_benchmark_in_background(
                     if config.modo_execucao == ModoExecucao.PARALELO
                     else None
                 ),
-                chunk_size=None,
+                chunk_size=(
+                    dataset.total_registros
+                    if config.modo_execucao == ModoExecucao.PARALELO
+                    and dataset is not None
+                    else None
+                ),
                 threshold=None,
             )
             role = (
@@ -296,14 +349,19 @@ def run_benchmark_in_background(
                 db.commit()
                 return
 
-            elapsed = execution.tempo_total_s
+            metric = (
+                db.query(MetricaExecucaoModel)
+                .filter_by(id_execucao=execution.id_execucao)
+                .first()
+            )
+            elapsed = metric.tempo_inferencia_s if metric is not None else None
             if (
                 role == PapelBenchmark.BASELINE
                 and execution.status == StatusExecucao.CONCLUIDA
             ):
                 baseline_seconds = elapsed
                 association.speedup = Decimal("1")
-                association.eficiencia = Decimal("1")
+                association.eficiencia = None
             elif (
                 execution.status == StatusExecucao.CONCLUIDA
                 and elapsed is not None
@@ -317,15 +375,7 @@ def run_benchmark_in_background(
                     maximum=Decimal("9999.9999"),
                 )
                 association.speedup = speedup
-                association.eficiencia = (
-                    _positive_decimal(
-                        speedup / Decimal(config.work_group_size),
-                        scale=4,
-                        maximum=Decimal("99.9999"),
-                    )
-                    if speedup is not None
-                    else None
-                )
+                association.eficiencia = None
             db.commit()
 
         db.refresh(benchmark, with_for_update=True)
@@ -437,7 +487,7 @@ def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
         Spacer(1, 8 * mm),
         Paragraph(
             "Em modo OpenCL, work_group_size representa o tamanho do work-group. "
-            "Speedup e eficiência são medidas observadas, sem garantia de ganho.",
+            "O speedup compara o tempo de inferência observado, sem garantia de ganho.",
             styles["BodyText"],
         ),
         Spacer(1, 5 * mm),
@@ -448,8 +498,8 @@ def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
             "Modo",
             "Work-group",
             "Tempo (s)",
+            "Inferência (s)",
             "Speedup",
-            "Eficiência",
             "Execução",
         ]
     ]
@@ -459,8 +509,12 @@ def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
             item.modo_execucao.value,
             str(item.work_group_size),
             f"{item.tempo_s:.6f}" if item.tempo_s is not None else "N/D",
+            (
+                f"{item.tempo_inferencia_s:.6f}"
+                if item.tempo_inferencia_s is not None
+                else "N/D"
+            ),
             f"{item.speedup:.4f}" if item.speedup is not None else "N/D",
-            f"{item.eficiencia:.4f}" if item.eficiencia is not None else "N/D",
             str(item.id_execucao),
         ]
         for item in response.execucoes
@@ -516,20 +570,29 @@ def _benchmark_response(
         .order_by(BenchmarkExecucaoModel.id_benchmark_exec)
         .all()
     )
-    items = [
-        BenchmarkExecucaoRespostaSchema(
-            id_benchmark_exec=association.id_benchmark_exec,
-            id_execucao=execution.id_execucao,
-            papel=association.papel,
-            tipo_dispositivo=association.tipo_dispositivo,
-            modo_execucao=execution.modo_execucao,
-            work_group_size=execution.num_workers,
-            tempo_s=execution.tempo_total_s,
-            speedup=association.speedup,
-            eficiencia=association.eficiencia,
+    items = []
+    for association, execution in rows:
+        metric = (
+            db.query(MetricaExecucaoModel)
+            .filter_by(id_execucao=execution.id_execucao)
+            .first()
         )
-        for association, execution in rows
-    ]
+        items.append(
+            BenchmarkExecucaoRespostaSchema(
+                id_benchmark_exec=association.id_benchmark_exec,
+                id_execucao=execution.id_execucao,
+                papel=association.papel,
+                tipo_dispositivo=association.tipo_dispositivo,
+                modo_execucao=execution.modo_execucao,
+                work_group_size=execution.num_workers,
+                tempo_s=execution.tempo_total_s,
+                tempo_inferencia_s=(
+                    metric.tempo_inferencia_s if metric is not None else None
+                ),
+                speedup=association.speedup,
+                eficiencia=association.eficiencia,
+            )
+        )
     return BenchmarkRespostaSchema(
         id_benchmark=benchmark.id_benchmark,
         id_dataset=benchmark.id_dataset,

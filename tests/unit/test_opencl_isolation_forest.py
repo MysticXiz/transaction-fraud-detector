@@ -8,8 +8,21 @@ from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     OpenCLIsolationForestExecutor,
     OpenCLRuntimeUnavailableError,
     _average_path_length,
+    _balance_local_size,
     _pack_forest,
 )
+
+
+def test_balance_local_size_keeps_multiple_work_groups_per_compute_unit():
+    balanced = _balance_local_size(
+        work_group_size=512,
+        preferred_multiple=16,
+        max_compute_units=6,
+        max_work_group_size=4096,
+    )
+
+    assert balanced == 176
+    assert balanced % 16 == 0
 
 
 def test_select_device_can_target_cpu_or_gpu(monkeypatch):
@@ -151,9 +164,45 @@ def test_available_devices_returns_only_detected_devices(monkeypatch):
     )
 
     assert OpenCLIsolationForestExecutor.available_devices() == [
-        ("CPU", "PoCL", "CPU teste", 128),
-        ("GPU", "CUDA teste", "GPU teste", 128),
+        ("CPU", "PoCL", "CPU teste", 256),
+        ("GPU", "CUDA teste", "GPU teste", 256),
     ]
+
+
+def test_recommend_for_cpu_uses_real_device_limits(monkeypatch):
+    cpu = SimpleNamespace(
+        type=opencl_isolation_forest.cl.device_type.CPU,
+        max_work_group_size=256,
+        max_compute_units=6,
+        local_mem_size=32_768,
+        platform=SimpleNamespace(name="PoCL"),
+        name="CPU teste",
+    )
+
+    class FakeKernel:
+        def get_work_group_info(self, info, device):
+            if (
+                info
+                == opencl_isolation_forest.cl.kernel_work_group_info.WORK_GROUP_SIZE
+            ):
+                return 256
+            return 16
+
+    monkeypatch.setattr(
+        OpenCLIsolationForestExecutor,
+        "_get_runtime",
+        lambda self: (object(), object(), FakeKernel(), cpu),
+    )
+
+    recommendation = OpenCLIsolationForestExecutor.recommend_for_device(
+        "CPU",
+        dataset_size=100_000,
+    )
+
+    assert 1 <= recommendation["work_group_recomendado"] <= 256
+    assert recommendation["chunk_recomendado"] > 0
+    assert recommendation["preferred_work_group_multiple"] == 16
+    assert recommendation["max_compute_units"] == 6
 
 
 def test_available_devices_ignores_work_group_query_failure(monkeypatch):

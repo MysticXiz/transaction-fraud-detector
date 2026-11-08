@@ -1,11 +1,18 @@
 import csv
 import io
 import json
+import logging
+import os
+from xml.sax.saxutils import escape
+from hashlib import sha256
 from decimal import Decimal
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Literal
 
 import numpy as np
+import psutil
+import pyopencl as cl
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -17,6 +24,11 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
 from src.fraud_detector.api.dependencies.roles import require_write_access
@@ -32,8 +44,15 @@ from src.fraud_detector.api.schemas.analysis import (
     ResultadosPaginaSchema,
     TransacaoDetalheSchema,
 )
-from src.fraud_detector.api.schemas.opencl import OpenCLCapabilitiesSchema
+from src.fraud_detector.api.schemas.opencl import (
+    CalibracaoCandidatoSchema,
+    CalibracaoOpenCLRespostaSchema,
+    CalibrarOpenCLSchema,
+    OpenCLCapabilitiesSchema,
+    OpenCLDeviceSchema,
+)
 from src.fraud_detector.application.analysis_service import (
+    _ANALYSIS_LOCK,
     AnalysisNotFoundError,
     AnalysisRequestError,
     create_execution,
@@ -66,6 +85,32 @@ from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 analyses_router = APIRouter(prefix="/analises", tags=["Análises"])
 models_router = APIRouter(prefix="/modelos", tags=["Modelos"])
+logger = logging.getLogger(__name__)
+_CALIBRATION_CACHE: dict[str, CalibracaoOpenCLRespostaSchema] = {}
+
+
+def _device_capability(
+    device_type: str,
+    platform: str,
+    device_name: str,
+    max_work_group_size: int,
+) -> OpenCLDeviceSchema:
+    recommendation = OpenCLIsolationForestExecutor.recommend_for_device(
+        device_type="GPU" if device_type == "GPU" else "CPU",
+    )
+    return OpenCLDeviceSchema(
+        tipo=device_type,
+        plataforma=platform,
+        nome=device_name,
+        max_work_group_size=max_work_group_size,
+        work_group_recomendado=int(recommendation["work_group_recomendado"]),
+        chunk_recomendado=int(recommendation["chunk_recomendado"]),
+        preferred_work_group_multiple=int(
+            recommendation["preferred_work_group_multiple"]
+        ),
+        unidades_computacao=int(recommendation["max_compute_units"]),
+        local_mem_size=int(recommendation["local_mem_size"]),
+    )
 
 
 @analyses_router.get("/capacidades", response_model=OpenCLCapabilitiesSchema)
@@ -74,19 +119,156 @@ def get_analysis_capabilities(
 ):
     try:
         devices = OpenCLIsolationForestExecutor.available_devices()
-    except (OpenCLExecutionError, OpenCLRuntimeUnavailableError):
+    except Exception as error:
+        logger.info("Não foi possível enumerar dispositivos OpenCL: %s", error)
         return OpenCLCapabilitiesSchema(dispositivos=[])
     return OpenCLCapabilitiesSchema(
         dispositivos=[
-            {
-                "tipo": device_type,
-                "plataforma": platform,
-                "nome": device_name,
-                "max_work_group_size": max_work_group_size,
-            }
+            _device_capability(device_type, platform, device_name, max_work_group_size)
             for device_type, platform, device_name, max_work_group_size in devices
         ]
     )
+
+
+@analyses_router.get("/diagnostico-opencl")
+def diagnose_opencl(_: UsuarioModel = Depends(get_current_user)):
+    platforms: list[dict[str, object]] = []
+    try:
+        for platform in cl.get_platforms():
+            devices: list[str] = []
+            for device in platform.get_devices():
+                devices.append(device.name)
+            platforms.append({"plataforma": platform.name, "dispositivos": devices})
+    except Exception as error:
+        logger.info("Falha ao diagnosticar OpenCL: %s", error)
+    return {
+        "plataformas": platforms,
+        "cpus_disponiveis_processo": psutil.cpu_count(logical=True) or 1,
+        "pocl_max_pu_count": os.getenv("POCL_MAX_PU_COUNT"),
+        "omp_num_threads": os.getenv("OMP_NUM_THREADS"),
+        "openblas_num_threads": os.getenv("OPENBLAS_NUM_THREADS"),
+        "pocl_pthread": any(
+            "Portable Computing Language" in str(platform["plataforma"])
+            for platform in platforms
+        ),
+    }
+
+
+@analyses_router.post(
+    "/calibrar-opencl",
+    response_model=CalibracaoOpenCLRespostaSchema,
+)
+def calibrate_opencl(
+    payload: CalibrarOpenCLSchema,
+    _: UsuarioModel = Depends(require_write_access),
+):
+    if not _ANALYSIS_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Existe uma análise em execução; aguarde a conclusão para calibrar o OpenCL",
+        )
+    try:
+        try:
+            devices = OpenCLIsolationForestExecutor.available_devices()
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Não foi possível detectar um dispositivo OpenCL disponível",
+            ) from error
+        if not any(device[0] == payload.tipo_dispositivo for device in devices):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Não há dispositivo {payload.tipo_dispositivo} OpenCL disponível",
+            )
+
+        recommendation = OpenCLIsolationForestExecutor.recommend_for_device(
+            payload.tipo_dispositivo,
+            dataset_size=payload.tamanho_amostra,
+        )
+        max_work_group = int(recommendation["max_work_group_size"])
+        preferred = int(recommendation["preferred_work_group_multiple"])
+        chunk_recommended = int(recommendation["chunk_recomendado"])
+        cache_key = sha256(
+            (
+                f"{payload.tipo_dispositivo}:"
+                f"{payload.tamanho_amostra}:{max_work_group}:{preferred}:{chunk_recommended}"
+            ).encode("utf-8")
+        ).hexdigest()
+        cached = _CALIBRATION_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        rng = np.random.default_rng(42)
+        samples = rng.normal(size=(payload.tamanho_amostra, 8)).astype(np.float32)
+        executor = OpenCLIsolationForestExecutor(
+            n_estimators=50,
+            device_type=payload.tipo_dispositivo,
+        )
+        executor.fit(samples)
+
+        candidates: list[CalibracaoCandidatoSchema] = []
+        work_groups: list[int] = []
+        candidate = preferred
+        while candidate <= max_work_group:
+            work_groups.append(candidate)
+            candidate *= 2
+        if max_work_group not in work_groups:
+            work_groups.append(max_work_group)
+        work_groups = sorted(set(max(1, candidate) for candidate in work_groups))
+
+        started_all = perf_counter()
+        best_candidate: CalibracaoCandidatoSchema | None = None
+        for work_group in work_groups:
+            elapsed = perf_counter() - started_all
+            if elapsed >= payload.tempo_maximo_s:
+                break
+            started = perf_counter()
+            try:
+                executor.score_opencl(samples, work_group_size=work_group)
+            except (
+                OpenCLExecutionError,
+                OpenCLRuntimeUnavailableError,
+                ValueError,
+            ) as error:
+                logger.warning(
+                    "Candidato de calibração work-group=%s falhou: %s",
+                    work_group,
+                    error,
+                )
+                continue
+            duration = max(perf_counter() - started, 0.000001)
+            candidate_result = CalibracaoCandidatoSchema(
+                work_group_size=work_group,
+                tamanho_chunk=chunk_recommended,
+                throughput_tps=payload.tamanho_amostra / duration,
+                tempo_s=duration,
+            )
+            candidates.append(candidate_result)
+            if (
+                best_candidate is None
+                or candidate_result.throughput_tps > best_candidate.throughput_tps
+            ):
+                best_candidate = candidate_result
+
+        if best_candidate is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Nenhum candidato de work-group conseguiu executar neste dispositivo",
+            )
+        response = CalibracaoOpenCLRespostaSchema(
+            tipo_dispositivo=payload.tipo_dispositivo,
+            work_group_size_recomendado=best_candidate.work_group_size,
+            tamanho_chunk_recomendado=chunk_recommended,
+            candidatos=candidates,
+            explicacao=(
+                "A calibração mediu os candidatos em dados sintéticos. "
+                "O work-group escolhido obteve o maior rendimento."
+            ),
+        )
+        _CALIBRATION_CACHE[cache_key] = response
+        return response
+    finally:
+        _ANALYSIS_LOCK.release()
 
 
 @analyses_router.post(
@@ -128,7 +310,10 @@ def create_analysis(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Não há dispositivo {payload.tipo_dispositivo} OpenCL disponível",
             )
-        if payload.work_group_size > selected_device[3]:
+        if (
+            payload.work_group_size is not None
+            and payload.work_group_size > selected_device[3]
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
@@ -247,6 +432,67 @@ def cancel_analysis(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@analyses_router.delete("/historico", status_code=status.HTTP_200_OK)
+def clear_analysis_history(
+    current_user: UsuarioModel = Depends(require_write_access),
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    active_statuses = (
+        StatusExecucao.PENDENTE,
+        StatusExecucao.EM_ANDAMENTO,
+    )
+    executions = (
+        db.query(ExecucaoAnaliseModel)
+        .filter(
+            ExecucaoAnaliseModel.id_usuario == current_user.id_usuario,
+            ExecucaoAnaliseModel.status.notin_(active_statuses),
+        )
+        .all()
+    )
+    if not executions:
+        return {
+            "removidas": 0,
+            "preservadas_em_andamento": db.query(ExecucaoAnaliseModel)
+            .filter(
+                ExecucaoAnaliseModel.id_usuario == current_user.id_usuario,
+                ExecucaoAnaliseModel.status.in_(active_statuses),
+            )
+            .count(),
+        }
+
+    execution_ids = [execution.id_execucao for execution in executions]
+    benchmark_ids = [
+        row[0]
+        for row in db.query(BenchmarkExecucaoModel.id_benchmark)
+        .filter(BenchmarkExecucaoModel.id_execucao.in_(execution_ids))
+        .distinct()
+        .all()
+    ]
+    if benchmark_ids:
+        db.query(BenchmarkModel).filter(
+            BenchmarkModel.id_benchmark.in_(benchmark_ids)
+        ).delete(synchronize_session=False)
+
+    removed = (
+        db.query(ExecucaoAnaliseModel)
+        .filter(
+            ExecucaoAnaliseModel.id_execucao.in_(execution_ids),
+            ExecucaoAnaliseModel.id_usuario == current_user.id_usuario,
+        )
+        .delete(synchronize_session=False)
+    )
+    preserved = (
+        db.query(ExecucaoAnaliseModel)
+        .filter(
+            ExecucaoAnaliseModel.id_usuario == current_user.id_usuario,
+            ExecucaoAnaliseModel.status.in_(active_statuses),
+        )
+        .count()
+    )
+    db.commit()
+    return {"removidas": removed, "preservadas_em_andamento": preserved}
+
+
 @analyses_router.delete("/{execution_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_analysis(
     execution_id: int,
@@ -353,6 +599,36 @@ def get_analysis_results(
     )
 
 
+@analyses_router.get("/{execution_id}/resultados/exportar")
+def export_analysis_results(
+    execution_id: int,
+    formato: Literal["csv", "json", "pdf"] = Query(...),
+    current_user: UsuarioModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _owned_execution(db, execution_id, current_user.id_usuario)
+    headers = {
+        "Content-Disposition": f'attachment; filename="analise-{execution_id}.{formato}"'
+    }
+    if formato == "json":
+        return StreamingResponse(
+            _stream_json_results(execution_id),
+            media_type="application/json",
+            headers=headers,
+        )
+    if formato == "csv":
+        return StreamingResponse(
+            _stream_csv_results(execution_id),
+            media_type="text/csv; charset=utf-8",
+            headers=headers,
+        )
+    return Response(
+        _render_analysis_pdf(execution_id),
+        media_type="application/pdf",
+        headers=headers,
+    )
+
+
 @analyses_router.get(
     "/{execution_id}/resultados/{transaction_id}",
     response_model=DetalheResultadoSchema,
@@ -432,30 +708,6 @@ def get_transaction_result(
             is_suspeita=current_result.is_suspeita,
         ),
         historico=history,
-    )
-
-
-@analyses_router.get("/{execution_id}/resultados/exportar")
-def export_analysis_results(
-    execution_id: int,
-    formato: Literal["csv", "json"] = Query(...),
-    current_user: UsuarioModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    _owned_execution(db, execution_id, current_user.id_usuario)
-    headers = {
-        "Content-Disposition": f'attachment; filename="analise-{execution_id}.{formato}"'
-    }
-    if formato == "json":
-        return StreamingResponse(
-            _stream_json_results(execution_id),
-            media_type="application/json",
-            headers=headers,
-        )
-    return StreamingResponse(
-        _stream_csv_results(execution_id),
-        media_type="text/csv; charset=utf-8",
-        headers=headers,
     )
 
 
@@ -542,6 +794,89 @@ def _stream_csv_results(execution_id: int):
             output.truncate(0)
     finally:
         db.close()
+
+
+def _render_analysis_pdf(execution_id: int) -> bytes:
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+    )
+    styles = getSampleStyleSheet()
+    content = [
+        Paragraph(f"Resultados da análise #{execution_id}", styles["Title"]),
+        Spacer(1, 5 * mm),
+    ]
+
+    table_data = [
+        [
+            "ID transação",
+            "Índice",
+            "Score",
+            "Suspeita",
+            "Limiar",
+            "Valor",
+            "Tempo relativo",
+        ]
+    ]
+    db = SessionLocal()
+    try:
+        count = 0
+        for result, transaction in _result_export_query(db, execution_id):
+            count += 1
+            table_data.append(
+                [
+                    str(result.id_transacao),
+                    str(transaction.indice_origem),
+                    f"{float(result.score_anomalia):.6f}",
+                    "Sim" if result.is_suspeita else "Não",
+                    f"{float(result.limiar_aplicado):.6f}",
+                    (
+                        f"{float(transaction.valor):.2f}"
+                        if transaction.valor is not None
+                        else "N/D"
+                    ),
+                    (
+                        f"{float(transaction.tempo_relativo):.2f}"
+                        if transaction.tempo_relativo is not None
+                        else "N/D"
+                    ),
+                ]
+            )
+        content.insert(
+            1,
+            Paragraph(
+                f"Total de resultados: {escape(str(count))}",
+                styles["Normal"],
+            ),
+        )
+    finally:
+        db.close()
+
+    table = Table(table_data, repeatRows=1, hAlign="LEFT")
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#40306b")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#cccccc")),
+                (
+                    "ROWBACKGROUNDS",
+                    (0, 1),
+                    (-1, -1),
+                    [colors.white, colors.HexColor("#f2eff8")],
+                ),
+                ("PADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    content.append(table)
+    document.build(content)
+    return buffer.getvalue()
 
 
 @models_router.get("", response_model=list[ModeloRespostaSchema])

@@ -143,6 +143,12 @@ O frontend fica em http://localhost:4200. `proxy.conf.json` encaminha `/api` par
 
 Novas instalações usam `database/schema.sql` e `database/seeds.sql`. O projeto não usa migrations Alembic no fluxo atual: o Compose cria a base do zero na primeira inicialização e a aplicação executa apenas o seed idempotente do usuário bootstrap. Bancos existentes não são alterados automaticamente.
 
+Para bancos existentes, aplique a atualização de work-group sem apagar dados:
+
+```powershell
+Get-Content database/patches/work_group_size_limit.sql | docker compose exec -T db psql -U fraud -d fraud_detection
+```
+
 ## API
 
 A documentação interativa completa está em `/docs`.

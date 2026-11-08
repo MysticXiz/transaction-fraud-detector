@@ -26,7 +26,7 @@ from src.fraud_detector.infrastructure.database.database import Base
 class ExecucaoAnaliseModel(Base):
     __tablename__ = "execucao_analise"
     __table_args__ = (
-        CheckConstraint("num_workers BETWEEN 1 AND 128", name="ck_execucao_workers"),
+        CheckConstraint("num_workers BETWEEN 1 AND 4096", name="ck_execucao_workers"),
         CheckConstraint(
             "tamanho_chunk IS NULL OR tamanho_chunk > 0", name="ck_execucao_chunk"
         ),

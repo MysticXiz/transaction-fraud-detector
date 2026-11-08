@@ -31,40 +31,40 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
           <p>Carregando relatório…</p>
         </div>
       } @else if (benchmark(); as b) {
-        @if (b.status === 'CONCLUIDO' && b.execucoes.length > 1) {
+        @if (b.status === 'CONCLUIDO' && b.execucoes.length > 1 && temBaseline(b.execucoes)) {
         <div class="grid-graficos">
           <div class="df-card">
-            <h2 class="titulo-secao">Curva de Speedup (Real vs Ideal)</h2>
+            <h2 class="titulo-secao">Speedup observado por configuração</h2>
             <svg viewBox="0 0 420 260" class="grafico">
               <line x1="40" y1="220" x2="400" y2="220" stroke="var(--cor-borda)" />
               <line x1="40" y1="20" x2="40" y2="220" stroke="var(--cor-borda)" />
-              <polyline [attr.points]="linhaIdeal()" fill="none" stroke="color-mix(in srgb, var(--cor-roxo) 40%, var(--cor-superficie))" stroke-width="2" stroke-dasharray="4 4" />
               <polyline [attr.points]="linhaReal()" fill="none" stroke="var(--cor-roxo)" stroke-width="2" />
               @for (p of pontosReais(); track p.x) {
                 <circle [attr.cx]="p.x" [attr.cy]="p.y" r="5" fill="var(--cor-roxo)" />
               }
               @for (item of b.execucoes; track item.id_benchmark_exec; let i = $index) {
                 <text [attr.x]="40 + i * (360 / (b.execucoes.length - 1 || 1))" y="238" font-size="11" fill="var(--cor-texto-suave)" text-anchor="middle">
-                  {{ item.work_group_size }}w
+                  WG {{ item.work_group_size }}
                 </text>
               }
             </svg>
           </div>
 
           <div class="df-card">
-            <h2 class="titulo-secao">Eficiência (%)</h2>
+            <h2 class="titulo-secao">Tempo de inferência (s)</h2>
             <svg viewBox="0 0 420 260" class="grafico">
               @for (item of b.execucoes; track item.id_benchmark_exec; let i = $index) {
+                @let maxInference = this.maxTempoInferencia(b.execucoes);
                 <rect
                   [attr.x]="40 + i * (360 / b.execucoes.length) + 10"
-                  [attr.y]="220 - (item.eficiencia ?? 0) * 2"
+                  [attr.y]="220 - (((item.tempo_inferencia_s ?? 0) / maxInference) * 180)"
                   [attr.width]="360 / b.execucoes.length - 20"
-                  [attr.height]="(item.eficiencia ?? 0) * 2"
+                  [attr.height]="((item.tempo_inferencia_s ?? 0) / maxInference) * 180"
                   fill="color-mix(in srgb, var(--cor-primaria) 65%, var(--cor-superficie))"
                   rx="3"
                 />
                 <text [attr.x]="40 + i * (360 / b.execucoes.length) + (360 / b.execucoes.length) / 2" y="238" font-size="11" fill="var(--cor-texto-suave)" text-anchor="middle">
-                  {{ item.work_group_size }}w
+                  WG {{ item.work_group_size }}
                 </text>
               }
             </svg>
@@ -81,8 +81,13 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
           </div>
         } @else {
           <div class="df-card resumo-sequencial">
-            <h2 class="titulo-secao">Medição sequencial</h2>
-            <p>Este benchmark executou apenas a referência sequencial. Para comparar speedup e eficiência, execute outro benchmark no modo paralelo.</p>
+            @if (temBaseline(b.execucoes)) {
+              <h2 class="titulo-secao">Medição sequencial</h2>
+              <p>Este benchmark executou apenas a referência sequencial. Para comparar speedup, execute um benchmark comparativo com modo paralelo.</p>
+            } @else {
+              <h2 class="titulo-secao">Medição paralela</h2>
+              <p>Este benchmark executou somente a configuração OpenCL paralela, sem baseline sequencial.</p>
+            }
           </div>
         }
 
@@ -93,11 +98,11 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
                 <tr>
                   <th>Modo</th>
                   <th>Dispositivo</th>
-                  <th>Workers</th>
+                  <th>Tamanho do work-group</th>
                   <th>Tempo (s)</th>
-                  @if (b.execucoes.length > 1) {
+                  <th>Inferência (s)</th>
+                  @if (temBaseline(b.execucoes)) {
                     <th>Speedup</th>
-                    <th>Eficiência</th>
                   }
                 </tr>
               </thead>
@@ -110,9 +115,9 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
                     <td>{{ item.tipo_dispositivo === 'CPU' ? 'Processador' : item.tipo_dispositivo === 'GPU' ? 'GPU' : '—' }}</td>
                     <td>{{ item.work_group_size }}</td>
                     <td>{{ item.tempo_s | number: '1.2-2' : 'pt-BR' }}</td>
-                    @if (b.execucoes.length > 1) {
+                    <td>{{ item.tempo_inferencia_s | number: '1.2-2' : 'pt-BR' }}</td>
+                    @if (temBaseline(b.execucoes)) {
                       <td [class.roxo]="item.papel !== 'BASELINE'">{{ item.speedup | number: '1.2-2' : 'pt-BR' }}x</td>
-                      <td [class.cor-erro]="item.eficiencia !== null && item.eficiencia < 75">{{ item.eficiencia | number: '1.1-1' : 'pt-BR' }}%</td>
                     }
                   </tr>
                 }
@@ -157,20 +162,6 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
 
   pontosReais = computed(() => this.calcularPontos(this.benchmark()?.execucoes ?? []));
   linhaReal = computed(() => this.pontosReais().map((p) => `${p.x},${p.y}`).join(' '));
-  linhaIdeal = computed(() => {
-    const execs = this.benchmark()?.execucoes ?? [];
-    if (!execs.length) return '';
-    const maxWorkGroupSize = Math.max(...execs.map((e) => e.work_group_size));
-    return execs
-      .map((e, i) => {
-        const x = 40 + i * (360 / (execs.length - 1 || 1));
-        const idealSpeedup = e.work_group_size;
-        const y = 220 - (idealSpeedup / maxWorkGroupSize) * 190;
-        return `${x},${y}`;
-      })
-      .join(' ');
-  });
-
   private calcularPontos(execs: BenchmarkExecucaoItem[]) {
     const measured = execs.filter((execution) => execution.speedup !== null);
     if (!measured.length) return [];
@@ -179,6 +170,10 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
       x: 40 + i * (360 / (execs.length - 1 || 1)),
       y: 220 - ((e.speedup ?? 0) / maxSpeedup) * 190,
     }));
+  }
+
+  temBaseline(executions: BenchmarkExecucaoItem[]): boolean {
+    return executions.some((execution) => execution.papel === 'BASELINE');
   }
 
   private idBenchmark = 0;
@@ -216,6 +211,11 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
         next: (benchmark) => this.benchmark.set(benchmark),
         error: () => this.erro.set('Não foi possível carregar o relatório de benchmark.'),
       });
+  }
+
+  maxTempoInferencia(execucoes: BenchmarkExecucaoItem[]): number {
+    const valores = execucoes.map((item) => item.tempo_inferencia_s ?? 0);
+    return Math.max(...valores, 1);
   }
 
   private isTerminal(status: Benchmark['status']): boolean {

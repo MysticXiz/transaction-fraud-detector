@@ -10,7 +10,7 @@ from src.fraud_detector.domain.enums.benchmark_role import PapelBenchmark
 
 class BenchmarkConfiguracaoSchema(BaseModel):
     modo_execucao: ModoExecucao
-    work_group_size: int = Field(ge=1, le=128)
+    work_group_size: int | None = Field(default=None, ge=1, le=4096)
     rotulo: str = Field(min_length=1, max_length=120)
     tipo_dispositivo: Literal["CPU", "GPU"] | None = None
 
@@ -31,6 +31,7 @@ class BenchmarkExecucaoRespostaSchema(BaseModel):
     modo_execucao: ModoExecucao
     work_group_size: int
     tempo_s: Decimal | None
+    tempo_inferencia_s: Decimal | None = None
     speedup: Decimal | None
     eficiencia: Decimal | None
 

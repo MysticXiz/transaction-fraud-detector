@@ -12,7 +12,7 @@ class CriarExecucaoSchema(BaseModel):
     id_dataset: int = Field(gt=0)
     id_modelo: int = Field(gt=0)
     modo_execucao: ModoExecucao
-    work_group_size: int = Field(ge=1, le=128)
+    work_group_size: int | None = Field(default=None, ge=1, le=4096)
     tipo_dispositivo: Literal["CPU", "GPU"] | None = None
     tamanho_chunk: int | None = Field(default=None, gt=0)
     limiar_decisao: Decimal | None = Field(default=None, ge=0, le=1)
