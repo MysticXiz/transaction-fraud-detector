@@ -1,9 +1,5 @@
-import csv
-import io
-import json
 import queue
 import threading
-from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -13,11 +9,8 @@ import numpy as np
 from src.fraud_detector.api.schemas.analysis import CriarExecucaoSchema
 from src.fraud_detector.api.schemas.analysis import MetricaRespostaSchema
 from src.fraud_detector.api.schemas.benchmark import (
-    BenchmarkExecucaoRespostaSchema,
-    BenchmarkRespostaSchema,
     CriarBenchmarkSchema,
 )
-from src.fraud_detector.api.routes import analyses as analysis_routes
 from src.fraud_detector.api.routes.analyses import analyses_router
 from src.fraud_detector.api.routes.auth import auth_router
 from src.fraud_detector.api.routes.benchmarks import benchmarks_router
@@ -27,7 +20,6 @@ from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.application import analysis_service
 from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
-from src.fraud_detector.domain.enums.benchmark_role import PapelBenchmark
 from src.fraud_detector.domain.enums.user_roles import PapelUsuario
 from src.fraud_detector.infrastructure.database.database import Base
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
