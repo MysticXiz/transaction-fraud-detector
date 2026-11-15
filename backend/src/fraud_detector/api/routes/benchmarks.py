@@ -1,9 +1,8 @@
 from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 import logging
-from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user

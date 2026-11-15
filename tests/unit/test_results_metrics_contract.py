@@ -25,7 +25,6 @@ from src.fraud_detector.api.routes.datasets import datasets_router
 from src.fraud_detector.api.routes.transactions import transactions_router
 from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.application import analysis_service
-from src.fraud_detector.api.routes.benchmarks import _render_benchmark_pdf
 from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
 from src.fraud_detector.domain.enums.benchmark_role import PapelBenchmark
@@ -260,11 +259,9 @@ def test_benchmark_api_accepts_frontend_configuration_shape():
     assert "/analises/{execution_id}/cancelar" in paths
     assert "/analises/{execution_id}/resultados" in paths
     assert "/analises/{execution_id}/resultados/{transaction_id}" in paths
-    assert "/analises/{execution_id}/resultados/exportar" in paths
     assert "/benchmarks/capacidades" in paths
     assert "/analises/capacidades" in paths
     assert "/benchmarks/{benchmark_id}" in paths
-    assert "/benchmarks/{benchmark_id}/exportar" in paths
     assert "/modelos" in paths
     execution_schema_ref = paths["/analises/{execution_id}"]["get"]["responses"]["200"][
         "content"
@@ -338,115 +335,6 @@ def test_metrics_response_can_be_built_from_persisted_orm_attributes():
 
     assert response.cpu_percent_medio == Decimal("10.25")
     assert response.memoria_pico_mb == Decimal("128.50")
-
-
-def test_benchmark_export_generates_a_pdf_document():
-    benchmark = BenchmarkRespostaSchema(
-        id_benchmark=7,
-        id_dataset=2,
-        dataset_nome="Transações teste",
-        total_registros=20,
-        descricao="Comparação OpenCL",
-        criado_em=datetime.now(UTC),
-        status="CONCLUIDO",
-        execucoes=[
-            BenchmarkExecucaoRespostaSchema(
-                id_benchmark_exec=1,
-                id_execucao=11,
-                papel=PapelBenchmark.BASELINE,
-                modo_execucao=ModoExecucao.SEQUENCIAL,
-                work_group_size=1,
-                tempo_s=Decimal("1.25"),
-                speedup=Decimal("1"),
-                eficiencia=Decimal("1"),
-            ),
-            BenchmarkExecucaoRespostaSchema(
-                id_benchmark_exec=2,
-                id_execucao=12,
-                papel=PapelBenchmark.COMPARACAO,
-                modo_execucao=ModoExecucao.PARALELO,
-                work_group_size=8,
-                tempo_s=Decimal("0.75"),
-                speedup=Decimal("1.6667"),
-                eficiencia=Decimal("0.2083"),
-            ),
-        ],
-    )
-
-    report = _render_benchmark_pdf(benchmark)
-
-    assert report.startswith(b"%PDF-")
-
-
-def test_export_route_precedes_dynamic_transaction_route():
-    routes = [
-        route.path
-        for route in analyses_router.routes
-        if getattr(route, "methods", set()) and "GET" in route.methods
-    ]
-    export_index = routes.index("/analises/{execution_id}/resultados/exportar")
-    detail_index = routes.index("/analises/{execution_id}/resultados/{transaction_id}")
-    assert export_index < detail_index
-
-
-def test_result_exports_stream_json_and_csv_with_transaction_features(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    result = SimpleNamespace(
-        id_execucao=4,
-        id_transacao=9,
-        score_anomalia=Decimal("0.875"),
-        is_suspeita=True,
-        limiar_aplicado=Decimal("0.5"),
-        chunk_id=0,
-    )
-    transaction = TransacaoModel(
-        id_transacao=9,
-        indice_origem=8,
-        valor=Decimal("33.25"),
-        tempo_relativo=Decimal("12.5"),
-        atributos={"V1": 0.25},
-        rotulo_real=None,
-    )
-
-    class Query:
-        def join(self, *args):
-            _ = args
-            return self
-
-        def filter(self, *args):
-            _ = args
-            return self
-
-        def order_by(self, *args):
-            _ = args
-            return self
-
-        def yield_per(self, size):
-            _ = size
-            return iter([(result, transaction)])
-
-    class ExportSession:
-        def query(self, *args):
-            _ = args
-            return Query()
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(analysis_routes, "SessionLocal", ExportSession)
-
-    json_output = json.loads("".join(analysis_routes._stream_json_results(4)))
-    csv_output = list(
-        csv.DictReader(io.StringIO("".join(analysis_routes._stream_csv_results(4))))
-    )
-    pdf_output = analysis_routes._render_analysis_pdf(4)
-
-    assert json_output[0]["atributos"] == {"V1": 0.25}
-    assert json_output[0]["score_anomalia"] == 0.875
-    assert json.loads(csv_output[0]["atributos"]) == {"V1": 0.25}
-    assert csv_output[0]["is_suspeita"] == "True"
-    assert pdf_output.startswith(b"%PDF-")
 
 
 def test_result_writer_count_is_capped_at_four(monkeypatch: pytest.MonkeyPatch):

@@ -3,12 +3,10 @@ import io
 import json
 import logging
 import os
-from xml.sax.saxutils import escape
 from hashlib import sha256
 from decimal import Decimal
 from datetime import UTC, datetime
 from time import perf_counter
-from typing import Literal
 
 import numpy as np
 import psutil
@@ -22,7 +20,6 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
