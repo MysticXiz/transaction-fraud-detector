@@ -21,10 +21,6 @@ export class BenchmarkService {
   }
 
   cancelar(idBenchmark: number) {
-    return this.http.post<Benchmark>(`${this.baseUrl}/${idBenchmark}/cancelar`, {});
+      return this.http.post<Benchmark>(`${this.baseUrl}/${idBenchmark}/cancelar`, {});
+    }
   }
-
-  exportarPdf(idBenchmark: number) {
-    return this.http.get(`${this.baseUrl}/${idBenchmark}/exportar`, { responseType: 'blob' });
-  }
-}

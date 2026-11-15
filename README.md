@@ -1,212 +1,457 @@
-﻿# Detector de Fraudes em Transações
+# Detector de Fraudes em Transações
 
 ## Visão geral
 
 Sistema full-stack para importação de datasets, detecção de transações suspeitas, acompanhamento de análises e execução de benchmarks com OpenCL.
 
-- Backend: FastAPI, SQLAlchemy 2, PostgreSQL e PyOpenCL
-- Frontend: Angular 22, RxJS e TypeScript
-- Banco: PostgreSQL 16
-- Infraestrutura: Docker Compose, Nginx e volumes persistentes
+- **Backend**: FastAPI, SQLAlchemy 2, PostgreSQL e PyOpenCL
+- **Frontend**: Angular 22, RxJS e TypeScript
+- **Banco**: PostgreSQL 16
+- **Infraestrutura**: Docker Compose, Nginx e volumes persistentes
 
-## Funcionalidades
+## Objetivo da solução
 
-- Login com JWT e perfis ADMIN, ANALISTA e VISUALIZADOR
-- Importação de arquivos CSV com validação, hash SHA-256 e acompanhamento de progresso
-- CRUD de transações pertencentes ao usuário
-- Análises com isolamento forest, OpenCL e exportação de resultados
-- Benchmarks sequenciais e paralelos
-- Histórico e cancelamento de execuções
+O sistema permite que analistas de fraude importem datasets de transações financeiras, configurem e executem análises de detecção de anomalias usando Isolation Forest (com aceleração OpenCL), visualizem resultados detalhados com métricas de performance, e realizem benchmarks comparativos entre execuções sequenciais e paralelas.
 
-## Estrutura
+## Tecnologias utilizadas
 
-```text
-backend/src/fraud_detector/  API, casos de uso, domínio e infraestrutura
-frontend/src/app/             Frontend Angular
-frontend/src/environments/    Configuração de ambiente
-frontend/src/app/features/    Telas por domínio
-frontend/src/app/core/        Guards, serviços, interceptors e modelos
-database/                     Schema SQL e seed inicial
-tests/                        Testes unitários e de desempenho
+### Backend
+- **FastAPI** - Framework web moderno e rápido
+- **SQLAlchemy 2.0** - ORM assíncrono/síncrono
+- **PostgreSQL 16** - Banco de dados relacional
+- **PyOpenCL** - Computação paralela OpenCL
+- **Pydantic/Pydantic Settings** - Validação e configuração
+- **Passlib/Argon2** - Hash seguro de senhas
+- **python-jose** - JWT tokens
+- **pandas, NumPy, scikit-learn** - Processamento de dados e ML
+
+### Frontend
+- **Angular 22** - Framework SPA com signals e novo control-flow
+- **RxJS 7** - Programação reativa
+- **TypeScript 6** - Tipagem estática
+- **Nginx** - Servidor web e proxy reverso
+
+### Infraestrutura
+- **Docker Compose** - Orquestração de containers
+- **PostgreSQL 16 Alpine** - Imagem oficial do banco
+- **Volumes persistentes** - Dados do banco e arquivos CSV
+
+## Requisitos necessários para execução
+
+### Com Docker (recomendado)
+- Docker Desktop 4.x+
+- Docker Compose 2.x+
+
+### Execução local (sem Docker)
+- Python 3.11+
+- PostgreSQL 16+
+- Node.js 22+ e npm
+- Runtime OpenCL compatível (PoCL, NVIDIA CUDA, AMD ROCm, Intel OpenCL)
+
+## Instruções de instalação e configuração
+
+### 1. Clone o repositório
+```bash
+git clone <url-do-repositorio>
+cd projeto-transacao
 ```
 
-## Pré-requisitos
-
-- Docker Desktop e Docker Compose, ou
-- Python 3.11+, PostgreSQL 16, Node.js 22+ e npm
-- Um runtime OpenCL compatível para benchmark/análise GPU ou CPU OpenCL
-
-## Subir com Docker
-
-1. Copie o arquivo de exemplo:
-
+### 2. Configure variáveis de ambiente
 ```powershell
+# Windows PowerShell
 Copy-Item .env.example .env
 ```
 
-2. Ajuste pelo menos `POSTGRES_PASSWORD` e `JWT_SECRET_KEY`, depois execute:
+Edite o arquivo `.env` e ajuste pelo menos:
+- `POSTGRES_PASSWORD` - Senha segura para o banco
+- `JWT_SECRET_KEY` - Chave secreta forte para JWT (mín. 32 chars)
+- `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` - Expiração do token (padrão: 30)
 
+### 3. Suba com Docker Compose
 ```powershell
 docker compose up --build
 ```
 
-3. Acesse:
+Aguarde a inicialização completa (health checks do banco e backend).
 
-- Frontend: http://localhost:4200
-- Backend e Swagger: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+### 4. Acesse o sistema
+- **Frontend**: http://localhost:4200
+- **Backend API**: http://localhost:8000
+- **Swagger/OpenAPI**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
 
-A instalação nova cria o banco com `database/schema.sql`, executa `database/seeds.sql` e inicia o bootstrap do usuário padrão pela aplicação.
+## Orientações para configurar o banco de dados
+
+### Com Docker (automático)
+O banco é criado automaticamente na primeira execução:
+1. `database/schema.sql` - Cria tabelas, índices, constraints
+2. `database/seeds.sql` - Dados iniciais (modelos de detecção)
+3. Bootstrap da aplicação - Cria usuário admin padrão se tabela vazia
+
+### Execução local (manual)
+```powershell
+# Criar banco e usuário
+psql -U postgres -c "CREATE DATABASE fraud_detection;"
+psql -U postgres -c "CREATE USER fraud WITH PASSWORD 'sua_senha';"
+psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE fraud_detection TO fraud;"
+
+# Executar schema e seeds
+Get-Content database/schema.sql | psql -U fraud -d fraud_detection
+Get-Content database/seeds.sql | psql -U fraud -d fraud_detection
+```
+
+### Patches incrementais
+Para bancos existentes, aplique patches sem apagar dados:
+```powershell
+Get-Content database/patches/work_group_size_limit.sql | docker compose exec -T db psql -U fraud -d fraud_detection
+```
+
+## Comandos para executar o sistema
+
+### Docker Compose
+```powershell
+# Subir tudo (build + start)
+docker compose up --build
+
+# Subir em background
+docker compose up -d --build
+
+# Ver logs
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Parar
+docker compose down
+
+# Parar e remover volumes (dados perdidos!)
+docker compose down -v
+```
+
+### Backend local
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+$env:PYTHONPATH='backend'
+# Configure DATABASE_URL no .env local
+python -m uvicorn src.fraud_detector.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Frontend local
+```powershell
+cd frontend
+npm ci
+npm run start:proxy  # usa proxy.conf.json para /api -> localhost:8000
+```
+
+### Testes e validação
+```powershell
+# Backend
+python -m pytest tests
+python -m ruff check backend tests
+python -m compileall -q backend/src tests
+
+# Frontend
+cd frontend
+npm run build -- --configuration production
+
+# Docker
+docker compose config
+```
+
+## Estrutura do projeto
+
+```
+projeto-transacao/
+├── backend/
+│   ├── src/fraud_detector/
+│   │   ├── api/
+│   │   │   ├── routes/          # Endpoints HTTP (auth, datasets, analyses, benchmarks)
+│   │   │   ├── schemas/         # Pydantic models (request/response)
+│   │   │   └── dependencies/    # Auth, roles, repositories
+│   │   ├── application/         # Casos de uso (services)
+│   │   ├── domain/              # Entidades, enums, regras de domínio
+│   │   ├── computational/       # CSV streaming, pré-processamento, OpenCL
+│   │   ├── infrastructure/      # DB, models SQLAlchemy, repositories, JWT/Argon2
+│   │   └── config/              # Settings via Pydantic Settings
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/
+│   ├── src/app/
+│   │   ├── core/
+│   │   │   ├── models/          # Interfaces TypeScript (Usuario, Dataset, etc.)
+│   │   │   ├── services/        # AuthService, DatasetService, AnalysisService, BenchmarkService
+│   │   │   ├── interceptors/    # authInterceptor (JWT + 401 handling)
+│   │   │   └── guards/          # authGuard, roleGuard
+│   │   ├── layout/shell/        # Sidebar fixa + router-outlet
+│   │   ├── shared/components/   # StatCard, StatusBadge
+│   │   └── features/            # Telas por domínio (lazy-loaded)
+│   │       ├── auth/login
+│   │       ├── dashboard
+│   │       ├── datasets/
+│   │       ├── analysis/
+│   │       ├── benchmark/
+│   │       └── history/
+│   ├── proxy.conf.json
+│   ├── nginx.conf
+│   └── Dockerfile
+├── database/
+│   ├── schema.sql               # DDL completo
+│   ├── seeds.sql                # Dados iniciais
+│   └── patches/                 # Patches incrementais
+├── docs/                        # Documentação técnica e sprints
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+## Documentação da API
+
+A documentação interativa completa (Swagger/OpenAPI) está disponível em **http://localhost:8000/docs** quando o backend está rodando.
+
+### Autenticação
+
+Todos os endpoints de dados exigem **JWT Bearer Token** no header `Authorization`, exceto:
+- `GET /` - Health check básico
+- `GET /health` - Status detalhado
+- `POST /auth/login` - Login
+- `POST /auth/register` - Registro (apenas ADMIN)
+
+**Perfis de acesso:**
+- **ADMIN**: Todas as operações, incluindo cadastro de usuários
+- **ANALISTA**: Leitura e operações de escrita (datasets, análises, benchmarks)
+- **VISUALIZADOR**: Apenas leitura
+
+### Endpoints Principais
+
+#### Autenticação (`/auth`)
+| Método | Rota | Descrição | Auth |
+|--------|------|-----------|------|
+| POST | `/auth/login` | Login com email/senha, retorna JWT | Não |
+| POST | `/auth/register` | Cria usuário (apenas ADMIN) | ADMIN |
+| GET | `/auth/me` | Perfil do usuário logado | JWT |
+| PATCH | `/auth/me` | Atualiza nome, email ou senha | Escrita |
+| DELETE | `/auth/users/{id_usuario}` | Exclui usuário (proteções) | ADMIN |
+
+#### Transações (`/transactions`)
+| Método | Rota | Descrição | Auth |
+|--------|------|-----------|------|
+| POST | `/transactions` | Cria transação | Escrita |
+| GET | `/transactions` | Lista transações do usuário | JWT |
+| GET | `/transactions/{id}` | Detalhe da transação | JWT |
+| PATCH | `/transactions/{id}` | Atualiza campos | Escrita |
+| DELETE | `/transactions/{id}` | Remove transação | Escrita |
+
+#### Datasets (`/datasets`)
+| Método | Rota | Descrição | Auth |
+|--------|------|-----------|------|
+| GET | `/datasets` | Lista datasets (com filtros/paginação) | JWT |
+| GET | `/datasets/{id}` | Detalhes + amostra | JWT |
+| POST | `/datasets/importacoes` | Cria job de importação | Escrita |
+| POST | `/datasets/importacoes/{id}/arquivo` | Upload CSV (multipart) | Escrita |
+| GET | `/datasets/importacoes/{id}` | Status do job | JWT |
+| POST | `/datasets/importacoes/{id}/cancelar` | Cancela importação | Escrita |
+| DELETE | `/datasets/{id}` | Remove dataset | Escrita |
+
+#### Modelos (`/modelos`)
+| Método | Rota | Descrição | Auth |
+|--------|------|-----------|------|
+| GET | `/modelos` | Lista modelos disponíveis | JWT |
+
+#### Análises (`/analises`)
+| Método | Rota | Descrição | Auth |
+|--------|------|-----------|------|
+| GET | `/analises/capacidades` | Dispositivos OpenCL detectados | JWT |
+| POST | `/analises` | Cria execução (dataset, modelo, modo, device) | Escrita |
+| GET | `/analises` | Histórico com filtros | JWT |
+| GET | `/analises/{id}` | Detalhe da execução | JWT |
+| DELETE | `/analises/{id}` | Remove execução | Escrita |
+| POST | `/analises/{id}/cancelar` | Solicita cancelamento | Escrita |
+| GET | `/analises/{id}/status` | Progresso (polling) | JWT |
+| GET | `/analises/{id}/resultados` | Resultados paginados/filtrados | JWT |
+| GET | `/analises/{id}/resultados/{transaction_id}` | Detalhe + histórico | JWT |
+
+#### Benchmarks (`/benchmarks`)
+| Método | Rota | Descrição | Auth |
+|--------|------|-----------|------|
+| GET | `/benchmarks/capacidades` | Dispositivos OpenCL | JWT |
+| POST | `/benchmarks` | Cria benchmark comparativo | Escrita |
+| GET | `/benchmarks/{id}` | Relatório com execuções | JWT |
+| POST | `/benchmarks/{id}/cancelar` | Cancela benchmark | Escrita |
+
+
+### Exemplos de uso
+
+#### Login
+```bash
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@admin.com", "senha": "admin123"}'
+```
+Resposta:
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer"
+}
+```
+
+#### Criar dataset (importação)
+```bash
+# 1. Criar job
+curl -X POST http://localhost:8000/datasets/importacoes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"nome": "Meu Dataset", "origem": "csv", "descricao": "Transações jan/2024"}'
+
+# 2. Upload do arquivo (multipart)
+curl -X POST http://localhost:8000/datasets/importacoes/{id}/arquivo \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "arquivo=@transacoes.csv"
+```
+
+#### Executar análise
+```bash
+curl -X POST http://localhost:8000/analises \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id_dataset": 1,
+    "id_modelo": 1,
+    "modo_execucao": "PARALELO",
+    "tipo_dispositivo": "GPU",
+    "work_group_size": 256
+  }'
+```
+
+#### Acompanhar progresso (polling)
+```bash
+curl -X GET http://localhost:8000/analises/{id}/status \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+#### Obter resultados
+```bash
+curl -X GET "http://localhost:8000/analises/{id}/resultados?pagina=1&tamanho_pagina=25&escore_minimo=0.7" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+#### Exportar resultados
+```bash
+# PDF
+curl -X GET "http://localhost:8000/analises/{id}/resultados/exportar?formato=pdf" \
+  -H "Authorization: Bearer $TOKEN" \
+  --output analise-{id}.pdf
+
+# CSV
+curl -X GET "http://localhost:8000/analises/{id}/resultados/exportar?formato=csv" \
+  -H "Authorization: Bearer $TOKEN" \
+  --output analise-{id}.csv
+```
+
+#### Benchmark
+```bash
+curl -X POST http://localhost:8000/benchmarks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id_dataset": 1,
+    "id_modelo": 1,
+    "configuracoes": [
+      {"modo_execucao": "SEQUENCIAL", "work_group_size": 1, "rotulo": "Seq"},
+      {"modo_execucao": "PARALELO", "work_group_size": 256, "rotulo": "Par 256"},
+      {"modo_execucao": "PARALELO", "work_group_size": 512, "rotulo": "Par 512"}
+    ]
+  }'
+```
 
 ## Usuário padrão (primeiro acesso)
 
 Na primeira criação do banco, quando a tabela de usuários está vazia, a API cria o usuário inicial:
 
-- Email/login: `admin@admin.com`
-- Senha: `admin123`
-- Perfil: administrador
+- **Email/login**: `admin@admin.com`
+- **Senha**: `admin123`
+- **Perfil**: administrador
 
-1. Entre com o usuário padrão.
-2. Pela interface, crie um novo usuário com perfil administrador.
-3. Entre com esse novo usuário administrador.
-4. Exclua o usuário padrão.
+**Importante**: 
+1. Entre com o usuário padrão
+2. Pela interface, crie um novo usuário com perfil administrador
+3. Entre com esse novo usuário administrador
+4. Exclua o usuário padrão
 
-A senha padrão é pública e deve ser trocada ou removida após configurar outro administrador. Para recriar o usuário padrão do zero, é necessário executar `docker compose down -v`; isso apaga todos os dados persistidos. O sistema impede excluir o último administrador ativo e a própria conta enquanto o usuário está logado.
-
-Para encerrar:
-
-```powershell
-docker compose down
-```
-
-Para remover também os dados locais:
-
-```powershell
-docker compose down -v
-```
-
-## Executar localmente
-
-### Banco
-
-```powershell
-Get-Content database/schema.sql | docker exec -i fraud_db psql -U fraud -d fraud_detection
-Get-Content database/seeds.sql | docker exec -i fraud_db psql -U fraud -d fraud_detection
-```
-
-Com PostgreSQL já instalado, crie o banco e execute os mesmos arquivos pelo `psql`.
-
-### Backend
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r backend/requirements.txt
-$env:PYTHONPATH='backend'
-python -m uvicorn src.fraud_detector.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Configure `DATABASE_URL` no `.env` para apontar ao PostgreSQL local. A API fica em http://localhost:8000 e `/docs` abre o Swagger.
-
-### Frontend
-
-```powershell
-cd frontend
-npm ci
-npm run start:proxy
-```
-
-O frontend fica em http://localhost:4200. `proxy.conf.json` encaminha `/api` para http://127.0.0.1:8000.
+A senha padrão é pública e deve ser trocada ou removida após configurar outro administrador.
 
 ## Variáveis de ambiente
 
-| Variável | Default Docker/local | Uso |
-|---|---|---|
-| `POSTGRES_USER` | `fraud` | Usuário administrativo do PostgreSQL |
-| `POSTGRES_PASSWORD` | `fraud` | Senha do PostgreSQL; substitua fora de desenvolvimento |
-| `POSTGRES_DB` | `fraud_detection` | Banco da aplicação |
-| `POSTGRES_PORT` | `5432` | Porta publicada do PostgreSQL |
-| `BACKEND_PORT` | `8000` | Porta publicada da API |
-| `FRONTEND_PORT` | `4200` | Porta publicada do frontend |
-| `JWT_SECRET_KEY` | segredo local | Assinatura dos tokens JWT |
+| Variável | Default | Descrição |
+|----------|---------|-----------|
+| `POSTGRES_USER` | `fraud` | Usuário PostgreSQL |
+| `POSTGRES_PASSWORD` | `fraud` | Senha PostgreSQL (troque em produção!) |
+| `POSTGRES_DB` | `fraud_detection` | Nome do banco |
+| `POSTGRES_PORT` | `5432` | Porta do banco |
+| `BACKEND_PORT` | `8000` | Porta da API |
+| `FRONTEND_PORT` | `4200` | Porta do frontend |
+| `JWT_SECRET_KEY` | segredo local | Chave JWT (mín. 32 chars em produção) |
 | `JWT_ALGORITHM` | `HS256` | Algoritmo JWT |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Validade do token |
-| `DATABASE_URL` | composto pelo Compose | URL SQLAlchemy do backend |
-| `DATASET_STORAGE_PATH` | `/app/storage/datasets` | Diretório persistente dos CSVs |
-| `MAX_DATASET_UPLOAD_BYTES` | `209715200` | Limite de upload |
-| `DATASET_UPLOAD_CHUNK_BYTES` | `1048576` | Tamanho dos chunks enviados pelo cliente |
-| `INGESTION_COPY_BUFFER_BYTES` | `1048576` | Buffer da carga PostgreSQL COPY |
-| `INGESTION_PROGRESS_EVERY_ROWS` | `50000` | Frequência de atualização do progresso |
-| `CORS_ORIGINS` | origins locais | Lista JSON das origens permitidas pelo CORS |
-
-## Banco e migrations
-
-Novas instalações usam `database/schema.sql` e `database/seeds.sql`. O projeto não usa migrations Alembic no fluxo atual: o Compose cria a base do zero na primeira inicialização e a aplicação executa apenas o seed idempotente do usuário bootstrap. Bancos existentes não são alterados automaticamente.
-
-Para bancos existentes, aplique a atualização de work-group sem apagar dados:
-
-```powershell
-Get-Content database/patches/work_group_size_limit.sql | docker compose exec -T db psql -U fraud -d fraud_detection
-```
-
-## API
-
-A documentação interativa completa está em `/docs`.
-
-Principais grupos:
-
-| Método | Rota | Função |
-|---|---|---|
-| POST | `/auth/login` | Login |
-| GET/PATCH | `/auth/me` | Perfil atual |
-| POST | `/auth/register` | Cadastro administrativo |
-| DELETE | `/auth/users/{id_usuario}` | Exclusão administrativa com proteções |
-| GET/POST/PATCH/DELETE | `/transactions` | CRUD de transações |
-| POST/GET/DELETE | `/datasets` e `/datasets/{id}` | Dataset e exclusão |
-| POST/GET | `/datasets/importacoes/...` | Job, upload, status e cancelamento de importação |
-| GET/POST/DELETE | `/analises` | Configuração, histórico, cancelamento e resultados |
-| POST/GET | `/benchmarks` | Execução e relatório |
-| GET | `/modelos` | Modelos disponíveis |
-
-## Testes e validação
-
-```powershell
-python -m pytest tests
-python -m ruff check backend tests
-python -m compileall -q backend/src tests
-cd frontend
-npm run build -- --configuration production
-docker compose config
-```
+| `DATABASE_URL` | composta pelo Compose | URL SQLAlchemy |
+| `DATASET_STORAGE_PATH` | `/app/storage/datasets` | Diretório CSVs |
+| `MAX_DATASET_UPLOAD_BYTES` | `209715200` | Limite upload (200MB) |
+| `DATASET_UPLOAD_CHUNK_BYTES` | `1048576` | Chunk size (1MB) |
+| `INGESTION_COPY_BUFFER_BYTES` | `1048576` | Buffer COPY PostgreSQL |
+| `INGESTION_PROGRESS_EVERY_ROWS` | `50000` | Frequência progresso |
+| `CORS_ORIGINS` | origins locais | JSON array de origens CORS |
 
 ## Uso de GPU (OpenCL)
 
-No Docker, o backend usa PoCL e expõe apenas um dispositivo de CPU OpenCL. A GPU NVIDIA é opcional e pode ser usada executando o backend diretamente no Windows. CUDA e OpenCL NVIDIA são implementações diferentes; `nvidia-smi` e `gpus: all` podem confirmar acesso ao driver CUDA sem garantir que o PyOpenCL encontrará um ICD OpenCL NVIDIA. Por isso, o Compose não usa GPU passthrough. A documentação oficial do Docker confirma GPU-PV/CUDA no Desktop para Windows, mas não comprova OpenCL NVIDIA; [Docker Desktop GPU support](https://docs.docker.com/desktop/features/gpu/) e o [NVIDIA CUDA on WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/) não apresentam essa implementação como suportada pelo fluxo deste projeto.
+### No Docker
+O backend usa **PoCL** (Portable Computing Language) e expõe apenas dispositivo **CPU OpenCL**. A GPU NVIDIA não é acessível via OpenCL no Docker Desktop/WSL2 atual.
 
-Para usar a GTX 1660 SUPER:
+### Para usar GPU NVIDIA
+1. Suba apenas banco e frontend pelo Docker:
+   ```powershell
+   docker compose up -d db frontend
+   ```
+2. No Windows, execute o backend nativamente:
+   ```powershell
+   cd backend
+   python -m venv .venv
+   .\.venv\Scripts\activate
+   python -m pip install -r requirements.txt
+   # Configure .env local com DATABASE_URL=postgresql://fraud:senha@localhost:5432/fraud_detection
+   python -m uvicorn src.fraud_detector.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+   ```
+3. Inicie frontend localmente:
+   ```powershell
+   cd frontend
+   npm run start:proxy
+   ```
 
-1. Suba o banco e o frontend pelo Docker: `docker compose up -d db frontend`.
-2. No Windows, crie o ambiente do backend: `cd backend`, `python -m venv .venv` e `.venv\Scripts\activate`.
-3. Instale as dependências: `python -m pip install -r requirements.txt`.
-4. Configure um `.env` na raiz usando `backend/.env.example.local` como referência. Aponte `DATABASE_URL` para `postgresql+psycopg://fraud:fraud@localhost:5432/fraud_detection`.
-5. Inicie o backend: `python -m uvicorn src.fraud_detector.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000`.
-6. Inicie também o frontend Angular localmente com `npm run start:proxy`; ele encaminha `/api` para `http://localhost:8000`.
+### Validação
+```bash
 
-Validação:
+python -c "import pyopencl as cl; print([(p.name, [d.name for d in p.get_devices()]) for p in cl.get_platforms()])"
 
-- Windows: `python -c "import pyopencl as cl; print([(p.name, [d.name for d in p.get_devices()]) for p in cl.get_platforms()])"` deve mostrar `NVIDIA CUDA` e a GTX 1660 SUPER.
-- Docker: `docker compose exec backend python -c "import pyopencl as cl; print([(p.name, [d.name for d in p.get_devices()]) for p in cl.get_platforms()])"` deve mostrar PoCL/CPU e nenhuma GPU.
-- `/api/analises/capacidades` deve listar apenas os dispositivos detectados pelo backend. "Tamanho máximo do work-group OpenCL" é um limite de execução do kernel, não quantidade de núcleos ou workers.
+# Docker (mostra PoCL/CPU apenas)
+docker compose exec backend python -c "import pyopencl as cl; print([(p.name, [d.name for d in p.get_devices()]) for p in cl.get_platforms()])"
+```
 
-Se nenhum dispositivo OpenCL estiver disponível, a API informa uma lista vazia ou usa CPU sequencial conforme o padrão da execução; nenhuma GPU fictícia é anunciada.
+## Limitações conhecidas
 
-## Solução de problemas
+- Jobs usam `BackgroundTasks`; reinício pode deixar job em estado não terminal
+- Nginx localiza backend por nome de serviço Compose; fora do Compose usa `proxy.conf.json`
+- OpenCL depende de runtime/drivers disponíveis
+- Alguns endpoints retornam listas completas; paginação pode ser necessária em produção
+- Seed contém credenciais de desenvolvimento (não usar em produção)
 
-- **Backend não conecta ao banco no Docker:** aguarde o health check do PostgreSQL e confirme usuário, senha e nome do banco.
-- **Frontend não encontra a API:** no Docker, `/api` é proxy do Nginx para `backend:8000`; localmente, execute com `npm run start:proxy`.
-- **Token inválido:** confirme `JWT_SECRET_KEY` igual em todas as instâncias do backend e faça login novamente.
-- **Upload falha:** confira `.csv`, limite configurado e espaço no volume `dataset-storage`.
-- **CPU não aparece:** no Docker, a imagem inclui PoCL, que oferece um dispositivo OpenCL de CPU sem exigir um driver OpenCL nativo do processador. Reconstrua a imagem com `docker compose up -d --build backend`. O valor mostrado como máximo é o limite do work-group OpenCL, não a quantidade de núcleos ou workers da CPU/GPU.
-- **GPU não aparece no Docker:** neste computador, o host detecta corretamente `NVIDIA GeForce GTX 1660 SUPER` pelo OpenCL, mas o container Linux não recebe o ICD/implementação OpenCL da NVIDIA. O Docker Desktop expõe CUDA/NVIDIA, porém isso não substitui o runtime OpenCL necessário pelo PyOpenCL. Para usar GPU nesta máquina, execute o backend localmente no Windows, como descrito na seção “Executar localmente”.
-- **Teste dos dispositivos OpenCL:** execute `docker compose exec backend python -c "import pyopencl as cl; [print(p.name, p.get_devices()) for p in cl.get_platforms()]"`.
-- **Banco já existente desatualizado:** recrie o banco do zero com `docker compose down -v` antes de usar uma instalação nova, pois esta versão não executa migrations automaticamente. Isso apaga os dados locais.
+## Integrantes da equipe
+
+| Nome |
+|------|
+| Bruno Severino de Almeida Rocha|
+| Rodrigo Amorim Neves |
+| Everson Padilha Ferreira |
+| Eduardo Barros Magalhães |
+
+---

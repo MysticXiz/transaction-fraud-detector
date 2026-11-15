@@ -75,13 +75,6 @@ export class AnalysisService {
     );
   }
 
-  exportarResultados(idExecucao: number, formato: 'csv' | 'json' | 'pdf') {
-    return this.http.get(`${this.baseUrl}/${idExecucao}/resultados/exportar`, {
-      params: new HttpParams().set('formato', formato),
-      responseType: 'blob',
-    });
-  }
-
   /** Histórico de execuções (UC05/T11), com filtros por status e modo. */
   listarHistorico(filtro: HistoricoFiltro = {}) {
     let params = new HttpParams();

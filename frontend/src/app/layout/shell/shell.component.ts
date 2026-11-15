@@ -227,16 +227,23 @@ import { ProcessManagerService } from '../../core/services/process-manager.servi
       .layout {
         display: flex;
         min-height: 100vh;
-      }
-      .sidebar {
-        width: 256px;
-        flex-shrink: 0;
-        background: var(--cor-sidebar);
-        color: #fff;
-        display: flex;
-        flex-direction: column;
-        padding: 24px 0;
-      }
+          position: relative;
+        }
+        .sidebar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 256px;
+          height: 100vh;
+          max-height: 100vh;
+          background: var(--cor-sidebar);
+          color: #fff;
+          display: flex;
+          flex-direction: column;
+          padding: 24px 0;
+          z-index: 100;
+          overflow-y: auto;
+        }
       .titulo {
         font-family: 'Trebuchet MS', 'Arial Narrow', sans-serif;
         font-size: 18px;
@@ -388,15 +395,23 @@ import { ProcessManagerService } from '../../core/services/process-manager.servi
       .sair:hover { background: #dc2626; border-color: #ef4444; color: #fff; }
       .conteudo {
         flex: 1;
-        padding: 40px 40px 32px;
-        overflow-x: auto;
-      }
-      @media (max-width: 900px) {
-        .conteudo { padding: 36px 28px 28px; }
-      }
-      @media (max-width: 640px) {
-        .conteudo { padding: 28px 16px 24px; }
-      }
+              margin-left: 256px;
+              padding: 40px 40px 32px;
+              overflow-x: auto;
+              min-height: 100vh;
+            }
+            @media (max-width: 900px) {
+              .conteudo { 
+                padding: 36px 28px 28px; 
+                margin-left: 256px;
+              }
+            }
+            @media (max-width: 640px) {
+              .conteudo { 
+                padding: 28px 16px 24px; 
+                margin-left: 0;
+              }
+            }
     `,
   ],
 })

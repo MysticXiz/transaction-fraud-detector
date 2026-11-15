@@ -21,7 +21,6 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
             }
         </div>
         <div class="page-header__actions">
-          <button class="df-btn df-btn-secundario" (click)="exportarPdf()">Exportar relatório PDF</button>
         </div>
       </header>
 
@@ -231,18 +230,5 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
       FALHA: 'com falha',
       CANCELADO: 'cancelado',
     }[status];
-  }
-
-  exportarPdf(): void {
-    const b = this.benchmark();
-    if (!b) return;
-    this.benchmarkService.exportarPdf(b.id_benchmark).subscribe((blob) => {
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `benchmark-${b.id_benchmark}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    });
   }
 }

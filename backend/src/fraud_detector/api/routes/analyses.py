@@ -24,11 +24,6 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
 from src.fraud_detector.api.dependencies.roles import require_write_access
@@ -599,36 +594,6 @@ def get_analysis_results(
     )
 
 
-@analyses_router.get("/{execution_id}/resultados/exportar")
-def export_analysis_results(
-    execution_id: int,
-    formato: Literal["csv", "json", "pdf"] = Query(...),
-    current_user: UsuarioModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    _owned_execution(db, execution_id, current_user.id_usuario)
-    headers = {
-        "Content-Disposition": f'attachment; filename="analise-{execution_id}.{formato}"'
-    }
-    if formato == "json":
-        return StreamingResponse(
-            _stream_json_results(execution_id),
-            media_type="application/json",
-            headers=headers,
-        )
-    if formato == "csv":
-        return StreamingResponse(
-            _stream_csv_results(execution_id),
-            media_type="text/csv; charset=utf-8",
-            headers=headers,
-        )
-    return Response(
-        _render_analysis_pdf(execution_id),
-        media_type="application/pdf",
-        headers=headers,
-    )
-
-
 @analyses_router.get(
     "/{execution_id}/resultados/{transaction_id}",
     response_model=DetalheResultadoSchema,
@@ -794,89 +759,6 @@ def _stream_csv_results(execution_id: int):
             output.truncate(0)
     finally:
         db.close()
-
-
-def _render_analysis_pdf(execution_id: int) -> bytes:
-    buffer = io.BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(A4),
-        rightMargin=12 * mm,
-        leftMargin=12 * mm,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
-    )
-    styles = getSampleStyleSheet()
-    content = [
-        Paragraph(f"Resultados da análise #{execution_id}", styles["Title"]),
-        Spacer(1, 5 * mm),
-    ]
-
-    table_data = [
-        [
-            "ID transação",
-            "Índice",
-            "Score",
-            "Suspeita",
-            "Limiar",
-            "Valor",
-            "Tempo relativo",
-        ]
-    ]
-    db = SessionLocal()
-    try:
-        count = 0
-        for result, transaction in _result_export_query(db, execution_id):
-            count += 1
-            table_data.append(
-                [
-                    str(result.id_transacao),
-                    str(transaction.indice_origem),
-                    f"{float(result.score_anomalia):.6f}",
-                    "Sim" if result.is_suspeita else "Não",
-                    f"{float(result.limiar_aplicado):.6f}",
-                    (
-                        f"{float(transaction.valor):.2f}"
-                        if transaction.valor is not None
-                        else "N/D"
-                    ),
-                    (
-                        f"{float(transaction.tempo_relativo):.2f}"
-                        if transaction.tempo_relativo is not None
-                        else "N/D"
-                    ),
-                ]
-            )
-        content.insert(
-            1,
-            Paragraph(
-                f"Total de resultados: {escape(str(count))}",
-                styles["Normal"],
-            ),
-        )
-    finally:
-        db.close()
-
-    table = Table(table_data, repeatRows=1, hAlign="LEFT")
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#40306b")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#cccccc")),
-                (
-                    "ROWBACKGROUNDS",
-                    (0, 1),
-                    (-1, -1),
-                    [colors.white, colors.HexColor("#f2eff8")],
-                ),
-                ("PADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
-    )
-    content.append(table)
-    document.build(content)
-    return buffer.getvalue()
 
 
 @models_router.get("", response_model=list[ModeloRespostaSchema])

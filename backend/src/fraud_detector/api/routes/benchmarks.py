@@ -1,15 +1,9 @@
 from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
-from io import BytesIO
 import logging
 from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
@@ -449,96 +443,6 @@ def cancel_benchmark(
     db.commit()
     db.refresh(benchmark)
     return _benchmark_response(db, benchmark)
-
-
-@benchmarks_router.get("/{benchmark_id}/exportar")
-def export_benchmark_pdf(
-    benchmark_id: int,
-    current_user: UsuarioModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    benchmark = _owned_benchmark(db, benchmark_id, current_user.id_usuario)
-    response = _benchmark_response(db, benchmark)
-    return Response(
-        _render_benchmark_pdf(response),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="benchmark-{benchmark_id}.pdf"'
-        },
-    )
-
-
-def _render_benchmark_pdf(response: BenchmarkRespostaSchema) -> bytes:
-    buffer = BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(A4),
-        rightMargin=15 * mm,
-        leftMargin=15 * mm,
-        topMargin=15 * mm,
-        bottomMargin=15 * mm,
-    )
-    styles = getSampleStyleSheet()
-    content = [
-        Paragraph(f"Benchmark #{response.id_benchmark}", styles["Title"]),
-        Paragraph(f"Dataset: {escape(response.dataset_nome)}", styles["Normal"]),
-        Paragraph(f"Registros: {response.total_registros}", styles["Normal"]),
-        Paragraph(f"Status: {response.status}", styles["Normal"]),
-        Spacer(1, 8 * mm),
-        Paragraph(
-            "Em modo OpenCL, work_group_size representa o tamanho do work-group. "
-            "O speedup compara o tempo de inferência observado, sem garantia de ganho.",
-            styles["BodyText"],
-        ),
-        Spacer(1, 5 * mm),
-    ]
-    table_data = [
-        [
-            "Papel",
-            "Modo",
-            "Work-group",
-            "Tempo (s)",
-            "Inferência (s)",
-            "Speedup",
-            "Execução",
-        ]
-    ]
-    table_data.extend(
-        [
-            item.papel.value,
-            item.modo_execucao.value,
-            str(item.work_group_size),
-            f"{item.tempo_s:.6f}" if item.tempo_s is not None else "N/D",
-            (
-                f"{item.tempo_inferencia_s:.6f}"
-                if item.tempo_inferencia_s is not None
-                else "N/D"
-            ),
-            f"{item.speedup:.4f}" if item.speedup is not None else "N/D",
-            str(item.id_execucao),
-        ]
-        for item in response.execucoes
-    )
-    table = Table(table_data, repeatRows=1)
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#40306b")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#cccccc")),
-                (
-                    "ROWBACKGROUNDS",
-                    (0, 1),
-                    (-1, -1),
-                    [colors.white, colors.HexColor("#f2eff8")],
-                ),
-                ("PADDING", (0, 0), (-1, -1), 6),
-            ]
-        )
-    )
-    content.append(table)
-    document.build(content)
-    return buffer.getvalue()
 
 
 def _owned_benchmark(
