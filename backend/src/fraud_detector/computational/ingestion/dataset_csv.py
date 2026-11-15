@@ -6,7 +6,7 @@ import re
 import math
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import BinaryIO, Iterator, TextIO
+from typing import BinaryIO, Callable, Iterator, TextIO
 
 
 class DatasetCsvError(ValueError):
@@ -14,6 +14,10 @@ class DatasetCsvError(ValueError):
 
 
 class DatasetTooLargeError(ValueError):
+    pass
+
+
+class DatasetImportCancelledError(RuntimeError):
     pass
 
 
@@ -309,12 +313,15 @@ def stream_upload_to_file(
     destination: Path,
     max_bytes: int,
     chunk_bytes: int,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[str, int]:
     hasher = hashlib.sha256()
     written = 0
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as handle:
         while True:
+            if should_cancel and should_cancel():
+                raise DatasetImportCancelledError("A importação foi cancelada")
             chunk = source.read(chunk_bytes)
             if not chunk:
                 break

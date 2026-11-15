@@ -7,6 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.computational.ingestion.dataset_csv import DatasetCsvReader
+from src.fraud_detector.computational.ingestion.dataset_csv import (
+    DatasetImportCancelledError,
+)
 from src.fraud_detector.infrastructure.models.dataset import DatasetModel
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 
@@ -38,10 +41,13 @@ class RepositorioDataset:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_hash(self, file_hash: str) -> DatasetModel | None:
+    def get_by_hash(self, file_hash: str, owner_id: int) -> DatasetModel | None:
         return (
             self.db.query(DatasetModel)
-            .filter(DatasetModel.hash_arquivo == file_hash)
+            .filter(
+                DatasetModel.hash_arquivo == file_hash,
+                DatasetModel.id_usuario == owner_id,
+            )
             .first()
         )
 
@@ -53,6 +59,7 @@ class RepositorioDataset:
         copy_buffer_bytes: int = 1_048_576,
         progress_every_rows: int = 50_000,
         on_progress: Callable[[int, int], None] | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> tuple[DatasetModel, IngestionLoadStats]:
         parse_seconds = 0.0
         copy_seconds = 0.0
@@ -67,6 +74,14 @@ class RepositorioDataset:
                     buffer = bytearray()
                     parse_started = perf_counter()
                     for line in parser.iter_copy_text(dataset.id_dataset):
+                        if (
+                            should_cancel
+                            and total_records % 1_000 == 0
+                            and should_cancel()
+                        ):
+                            raise DatasetImportCancelledError(
+                                "A importação foi cancelada"
+                            )
                         parse_seconds += perf_counter() - parse_started
                         if total_records + 1 > 2_147_483_647:
                             raise ValueError(
@@ -90,6 +105,8 @@ class RepositorioDataset:
 
             if total_records == 0:
                 raise ValueError("O arquivo CSV precisa conter ao menos uma transação")
+            if should_cancel and should_cancel():
+                raise DatasetImportCancelledError("A importação foi cancelada")
 
             dataset.total_registros = total_records
             commit_started = perf_counter()

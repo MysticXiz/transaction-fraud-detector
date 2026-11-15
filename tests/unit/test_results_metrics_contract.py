@@ -1,0 +1,462 @@
+import queue
+import threading
+from decimal import Decimal
+from types import SimpleNamespace
+
+import pytest
+import numpy as np
+
+from src.fraud_detector.api.schemas.analysis import CriarExecucaoSchema
+from src.fraud_detector.api.schemas.analysis import MetricaRespostaSchema
+from src.fraud_detector.api.schemas.benchmark import (
+    CriarBenchmarkSchema,
+)
+from src.fraud_detector.api.routes.analyses import analyses_router
+from src.fraud_detector.api.routes.auth import auth_router
+from src.fraud_detector.api.routes.benchmarks import benchmarks_router
+from src.fraud_detector.api.routes.datasets import datasets_router
+from src.fraud_detector.api.routes.transactions import transactions_router
+from src.fraud_detector.api.dependencies.roles import require_write_access
+from src.fraud_detector.application import analysis_service
+from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
+from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
+from src.fraud_detector.domain.enums.user_roles import PapelUsuario
+from src.fraud_detector.infrastructure.database.database import Base
+from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
+from src.fraud_detector.main import app
+from fastapi import HTTPException
+
+
+def test_transaction_frame_restores_model_features_from_persisted_columns():
+    rows = [
+        TransacaoModel(
+            atributos={"V1": 0.25, "Class": 1},
+            tempo_relativo=Decimal("4.5000"),
+            valor=Decimal("10.25"),
+        ),
+        TransacaoModel(
+            atributos={"V1": -0.5, "Class": 0},
+            tempo_relativo=Decimal("8.0000"),
+            valor=Decimal("20.00"),
+        ),
+    ]
+
+    frame = analysis_service._transactions_frame(rows)
+
+    assert list(frame.columns) == ["V1", "Class", "Time", "Amount"]
+    assert frame["V1"].tolist() == [0.25, -0.5]
+    assert frame["Time"].tolist() == [4.5, 8.0]
+    assert frame["Amount"].tolist() == [10.25, 20.0]
+    assert "rotulo_real" not in frame.columns
+    processor = Preprocessor()
+    processor.fit_transform(frame)
+    assert processor.feature_names == ("V1", "Time", "Amount")
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected"),
+    [
+        ({}, {"n_estimators": 200, "contamination": 0.0017, "random_state": 42}),
+        (
+            {
+                "n_estimators": 24,
+                "contamination": "auto",
+                "random_state": 7,
+            },
+            {"n_estimators": 24, "contamination": "auto", "random_state": 7},
+        ),
+    ],
+)
+def test_executor_uses_supported_model_hyperparameters(
+    monkeypatch: pytest.MonkeyPatch,
+    parameters: dict[str, object],
+    expected: dict[str, object],
+):
+    captured: dict[str, object] = {}
+
+    class FakeExecutor:
+        def __init__(self, **kwargs: object):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(analysis_service, "OpenCLIsolationForestExecutor", FakeExecutor)
+
+    analysis_service._create_executor(parameters)
+
+    assert captured == {**expected, "device_type": None}
+
+
+def test_executor_receives_selected_opencl_device(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    class FakeExecutor:
+        def __init__(self, **kwargs: object):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(analysis_service, "OpenCLIsolationForestExecutor", FakeExecutor)
+
+    analysis_service._create_executor({}, opencl_device_type="CPU")
+
+    assert captured["device_type"] == "CPU"
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"n_estimators": 0},
+        {"n_estimators": 2001},
+        {"contamination": 0},
+        {"contamination": 0.6},
+        {"random_state": "42"},
+    ],
+)
+def test_executor_rejects_invalid_model_hyperparameters(
+    parameters: dict[str, object],
+):
+    with pytest.raises(ValueError):
+        analysis_service._create_executor(parameters)
+
+
+def test_analysis_api_request_keeps_frontend_field_names_and_validates_work_group():
+    request = CriarExecucaoSchema(
+        id_dataset=1,
+        id_modelo=1,
+        modo_execucao=ModoExecucao.PARALELO,
+        work_group_size=8,
+        tipo_dispositivo="GPU",
+        tamanho_chunk=256,
+        limiar_decisao=Decimal("0.35"),
+    )
+
+    assert request.model_dump() == {
+        "id_dataset": 1,
+        "id_modelo": 1,
+        "modo_execucao": ModoExecucao.PARALELO,
+        "work_group_size": 8,
+        "tipo_dispositivo": "GPU",
+        "tamanho_chunk": 256,
+        "limiar_decisao": Decimal("0.35"),
+    }
+    automatic = CriarExecucaoSchema(
+        id_dataset=1,
+        id_modelo=1,
+        modo_execucao=ModoExecucao.PARALELO,
+        tipo_dispositivo="CPU",
+    )
+    assert automatic.work_group_size is None
+    assert automatic.tamanho_chunk is None
+    with pytest.raises(ValueError):
+        CriarExecucaoSchema(
+            id_dataset=1,
+            id_modelo=1,
+            modo_execucao=ModoExecucao.PARALELO,
+            work_group_size=4097,
+        )
+    with pytest.raises(ValueError):
+        CriarExecucaoSchema(
+            id_dataset=1,
+            id_modelo=1,
+            modo_execucao=ModoExecucao.PARALELO,
+            work_group_size=6,
+            tamanho_chunk=0,
+        )
+
+
+@pytest.mark.parametrize(
+    "role",
+    [PapelUsuario.ADMIN, PapelUsuario.ANALISTA],
+)
+def test_write_access_allows_admin_and_analyst(role: PapelUsuario):
+    user = SimpleNamespace(papel=role)
+
+    assert require_write_access(user) is user
+
+
+def test_write_access_rejects_viewer():
+    user = SimpleNamespace(papel=PapelUsuario.VISUALIZADOR)
+
+    with pytest.raises(HTTPException) as error:
+        require_write_access(user)
+
+    assert error.value.status_code == 403
+
+
+def test_all_mutating_api_routes_require_write_access():
+    expected = {
+        ("PATCH", "/auth/me"),
+        ("POST", "/datasets/importacoes"),
+        ("POST", "/datasets/importacoes/{import_id}/cancelar"),
+        ("POST", "/datasets/importacoes/{import_id}/arquivo"),
+        ("POST", "/datasets"),
+        ("DELETE", "/datasets/{dataset_id}"),
+        ("POST", "/analises"),
+        ("POST", "/analises/{execution_id}/cancelar"),
+        ("DELETE", "/analises/{execution_id}"),
+        ("DELETE", "/analises/historico"),
+        ("POST", "/benchmarks"),
+        ("POST", "/benchmarks/{benchmark_id}/cancelar"),
+        ("POST", "/transactions"),
+        ("PATCH", "/transactions/{id_transacao}"),
+        ("DELETE", "/transactions/{id_transacao}"),
+    }
+    routes = {
+        (method, route.path): route
+        for router in (
+            auth_router,
+            datasets_router,
+            analyses_router,
+            benchmarks_router,
+            transactions_router,
+        )
+        for route in router.routes
+        if hasattr(route, "dependant")
+        for method in route.methods or set()
+    }
+
+    for method, path in expected:
+        route = routes[(method, path)]
+        assert any(
+            dependency.call is require_write_access
+            for dependency in route.dependant.dependencies
+        ), f"{method} {path} must require write access"
+
+
+def test_benchmark_api_accepts_frontend_configuration_shape():
+    payload = CriarBenchmarkSchema.model_validate(
+        {
+            "id_dataset": 2,
+            "id_modelo": 1,
+            "configuracoes": [
+                {
+                    "modo_execucao": "SEQUENCIAL",
+                    "work_group_size": 1,
+                    "rotulo": "Sequencial (Baseline Obrigatório)",
+                },
+                {
+                    "modo_execucao": "PARALELO",
+                    "work_group_size": 8,
+                    "tipo_dispositivo": "CPU",
+                    "rotulo": "Paralelo (8 workers)",
+                },
+            ],
+        }
+    )
+
+    assert len(payload.configuracoes) == 2
+    assert payload.configuracoes[1].tipo_dispositivo == "CPU"
+    openapi = app.openapi()
+    paths = openapi["paths"]
+    assert paths["/analises"]["post"]["responses"]["202"]
+    assert "/analises/{execution_id}" in paths
+    assert paths["/analises/{execution_id}"]["delete"]["responses"]["204"]
+    assert "/analises/{execution_id}/cancelar" in paths
+    assert "/analises/{execution_id}/resultados" in paths
+    assert "/analises/{execution_id}/resultados/{transaction_id}" in paths
+    assert "/benchmarks/capacidades" in paths
+    assert "/analises/capacidades" in paths
+    assert "/benchmarks/{benchmark_id}" in paths
+    assert "/modelos" in paths
+    execution_schema_ref = paths["/analises/{execution_id}"]["get"]["responses"]["200"][
+        "content"
+    ]["application/json"]["schema"]["$ref"]
+    execution_schema_name = execution_schema_ref.rsplit("/", maxsplit=1)[-1]
+    execution_schema = openapi["components"]["schemas"][execution_schema_name]
+    assert "total_registros" in execution_schema["properties"]
+    assert {
+        "modelo_deteccao",
+        "execucao_analise",
+        "resultado_deteccao",
+        "metrica_execucao",
+        "benchmark",
+        "benchmark_execucao",
+    }.issubset(Base.metadata.tables)
+
+
+def test_benchmark_api_accepts_parallel_only_configuration():
+    payload = CriarBenchmarkSchema.model_validate(
+        {
+            "id_dataset": 2,
+            "id_modelo": 1,
+            "configuracoes": [
+                {
+                    "modo_execucao": "PARALELO",
+                    "work_group_size": 512,
+                    "tipo_dispositivo": "CPU",
+                    "rotulo": "Somente paralelo CPU",
+                }
+            ],
+        }
+    )
+
+    assert len(payload.configuracoes) == 1
+    assert payload.configuracoes[0].modo_execucao == ModoExecucao.PARALELO
+    assert payload.configuracoes[0].work_group_size == 512
+
+
+def test_benchmark_api_accepts_sequential_only_configuration():
+    payload = CriarBenchmarkSchema.model_validate(
+        {
+            "id_dataset": 2,
+            "id_modelo": 1,
+            "configuracoes": [
+                {
+                    "modo_execucao": "SEQUENCIAL",
+                    "work_group_size": 1,
+                    "rotulo": "Sequencial (Baseline)",
+                }
+            ],
+        }
+    )
+
+    assert len(payload.configuracoes) == 1
+    assert payload.configuracoes[0].modo_execucao == ModoExecucao.SEQUENCIAL
+
+
+def test_metrics_response_can_be_built_from_persisted_orm_attributes():
+    metric = SimpleNamespace(
+        tempo_leitura_s=Decimal("0.125000"),
+        tempo_preproc_s=Decimal("0.250000"),
+        tempo_inferencia_s=Decimal("0.500000"),
+        tempo_overhead_s=Decimal("0.050000"),
+        cpu_percent_medio=Decimal("10.25"),
+        memoria_pico_mb=Decimal("128.50"),
+        throughput_tps=Decimal("100.00"),
+        nucleos_disponiveis=8,
+    )
+
+    response = MetricaRespostaSchema.model_validate(metric)
+
+    assert response.cpu_percent_medio == Decimal("10.25")
+    assert response.memoria_pico_mb == Decimal("128.50")
+
+
+def test_result_writer_count_is_capped_at_four(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(analysis_service, "available_cpu_capacity", lambda: 12)
+
+    assert analysis_service._result_writer_count() == 4
+
+
+def test_result_writer_uses_binary_copy(monkeypatch: pytest.MonkeyPatch):
+    written_buffers: list[bytes] = []
+    copy_options: list[str] = []
+
+    class FakeCopy:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def set_types(self, types):
+            copy_options.append(",".join(types))
+
+        def write(self, buffer):
+            written_buffers.append(buffer)
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def copy(self, statement):
+            assert "FORMAT BINARY" in statement
+            return FakeCopy()
+
+    class FakeConnection:
+        driver_connection: object = SimpleNamespace()
+
+        def cursor(self):
+            return FakeCursor()
+
+    fake_connection = FakeConnection()
+    fake_driver_connection = SimpleNamespace(cursor=fake_connection.cursor)
+
+    class FakeSession:
+        def connection(self):
+            return SimpleNamespace(connection=fake_driver_connection)
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(analysis_service, "SessionLocal", FakeSession)
+    writer_queue: queue.Queue[object] = queue.Queue()
+    writer_errors: list[BaseException] = []
+    item, suspicious = analysis_service._create_result_writer_item(
+        7,
+        np.array([10, 11], dtype=np.int64),
+        np.array([0.75, 0.25], dtype=np.float32),
+        0.5,
+        2,
+    )
+    writer_queue.put(item)
+    writer_queue.put(analysis_service._WRITER_STOP)
+
+    analysis_service._result_writer(
+        writer_queue,
+        writer_errors,
+        threading.Lock(),
+    )
+
+    assert not writer_errors
+    assert copy_options == ["int4,int8,numeric,bool,numeric,int4"]
+    assert len(written_buffers) == 1
+    assert written_buffers[0].startswith(b"PGCOPY\n\xff\r\n\x00")
+    assert suspicious.tolist() == [True, False]
+
+
+def test_result_writer_records_first_error(monkeypatch: pytest.MonkeyPatch):
+    class FakeCopy:
+        def __enter__(self):
+            raise RuntimeError("falha simulada no COPY")
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def copy(self, _statement):
+            return FakeCopy()
+
+    fake_driver_connection = SimpleNamespace(cursor=lambda: FakeCursor())
+
+    class FakeSession:
+        def connection(self):
+            return SimpleNamespace(connection=fake_driver_connection)
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(analysis_service, "SessionLocal", FakeSession)
+    writer_queue: queue.Queue[object] = queue.Queue()
+    writer_errors: list[BaseException] = []
+    item, _ = analysis_service._create_result_writer_item(
+        7,
+        np.array([10], dtype=np.int64),
+        np.array([0.75], dtype=np.float32),
+        0.5,
+        2,
+    )
+    writer_queue.put(item)
+
+    analysis_service._result_writer(writer_queue, writer_errors, threading.Lock())
+
+    assert len(writer_errors) == 1
+    assert "falha simulada" in str(writer_errors[0])

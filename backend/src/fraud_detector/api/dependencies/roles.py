@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from src.fraud_detector.api.dependencies.auth import get_current_user
-from src.fraud_detector.infrastructure.models.user import PapelUsuario, UsuarioModel
+from src.fraud_detector.domain.enums.user_roles import PapelUsuario
+from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 
 def require_role(*allowed_roles: PapelUsuario):
@@ -17,3 +18,6 @@ def require_role(*allowed_roles: PapelUsuario):
         return current_user
 
     return role_checker
+
+
+require_write_access = require_role(PapelUsuario.ADMIN, PapelUsuario.ANALISTA)

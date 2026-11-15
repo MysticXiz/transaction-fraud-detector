@@ -1,0 +1,26 @@
+import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { environment } from '../../../environments/environment';
+import {
+  Benchmark,
+  BenchmarkCreate,
+} from '../models/benchmark.model';
+
+@Injectable({ providedIn: 'root' })
+export class BenchmarkService {
+  private http = inject(HttpClient);
+  private baseUrl = `${environment.apiUrl}/benchmarks`;
+
+  /** Dispara um benchmark comparativo ou somente paralelo conforme as configurações enviadas. */
+  executarBateria(payload: BenchmarkCreate) {
+    return this.http.post<Benchmark>(this.baseUrl, payload);
+  }
+
+  obter(idBenchmark: number) {
+    return this.http.get<Benchmark>(`${this.baseUrl}/${idBenchmark}`);
+  }
+
+  cancelar(idBenchmark: number) {
+      return this.http.post<Benchmark>(`${this.baseUrl}/${idBenchmark}/cancelar`, {});
+    }
+  }

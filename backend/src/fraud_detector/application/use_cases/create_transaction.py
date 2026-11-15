@@ -12,7 +12,9 @@ class CriarTransacaoUseCase:
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
-    def execute(self, transaction_data: TransacaoCriacaoSchema) -> Transacao:
+    def execute(
+        self, transaction_data: TransacaoCriacaoSchema, owner_id: int
+    ) -> Transacao:
         transaction = Transacao(
             id_transacao=None,
             id_dataset=transaction_data.id_dataset,
@@ -23,7 +25,7 @@ class CriarTransacaoUseCase:
             rotulo_real=transaction_data.rotulo_real,
         )
         try:
-            return self.transaction_repository.create(transaction)
+            return self.transaction_repository.create(transaction, owner_id)
         except IntegrityError as error:
             # A sessão precisa ser revertida antes de qualquer operação posterior.
             self.transaction_repository.db.rollback()

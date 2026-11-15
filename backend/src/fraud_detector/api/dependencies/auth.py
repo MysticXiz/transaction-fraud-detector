@@ -34,10 +34,16 @@ def get_current_user(
             detail="Token inválido ou expirado",
         )
 
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido",
+        )
+
     # A existência do token não basta: a conta pode ter sido removida ou desativada.
-    user = (
-        db.query(UsuarioModel).filter(UsuarioModel.id_usuario == int(user_id)).first()
-    )
+    user = db.query(UsuarioModel).filter(UsuarioModel.id_usuario == user_id).first()
 
     if user is None or not user.ativo:
         raise HTTPException(

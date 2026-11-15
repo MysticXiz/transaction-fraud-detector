@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from src.fraud_detector.domain.entities.transaction import Transacao
+from src.fraud_detector.infrastructure.models.dataset import DatasetModel
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 
 
@@ -9,7 +10,17 @@ class RepositorioTransacao:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, transaction: Transacao) -> Transacao:
+    def create(self, transaction: Transacao, owner_id: int) -> Transacao:
+        dataset = (
+            self.db.query(DatasetModel)
+            .filter(
+                DatasetModel.id_dataset == transaction.id_dataset,
+                DatasetModel.id_usuario == owner_id,
+            )
+            .first()
+        )
+        if dataset is None:
+            raise ValueError("Dataset não encontrado")
         model = TransacaoModel(
             id_dataset=transaction.id_dataset,
             indice_origem=transaction.indice_origem,
@@ -23,22 +34,37 @@ class RepositorioTransacao:
         self.db.refresh(model)
         return self._to_entity(model)
 
-    def get_by_id(self, id_transacao: int) -> Transacao | None:
+    def get_by_id(self, id_transacao: int, owner_id: int) -> Transacao | None:
         model = (
             self.db.query(TransacaoModel)
-            .filter(TransacaoModel.id_transacao == id_transacao)
+            .join(DatasetModel, DatasetModel.id_dataset == TransacaoModel.id_dataset)
+            .filter(
+                TransacaoModel.id_transacao == id_transacao,
+                DatasetModel.id_usuario == owner_id,
+            )
             .first()
         )
         return self._to_entity(model) if model else None
 
-    def get_all(self) -> list[Transacao]:
-        models = self.db.query(TransacaoModel).all()
+    def get_all(self, owner_id: int) -> list[Transacao]:
+        models = (
+            self.db.query(TransacaoModel)
+            .join(DatasetModel, DatasetModel.id_dataset == TransacaoModel.id_dataset)
+            .filter(DatasetModel.id_usuario == owner_id)
+            .all()
+        )
         return [self._to_entity(model) for model in models]
 
-    def update(self, id_transacao: int, updates: dict) -> Transacao | None:
+    def update(
+        self, id_transacao: int, owner_id: int, updates: dict
+    ) -> Transacao | None:
         model = (
             self.db.query(TransacaoModel)
-            .filter(TransacaoModel.id_transacao == id_transacao)
+            .join(DatasetModel, DatasetModel.id_dataset == TransacaoModel.id_dataset)
+            .filter(
+                TransacaoModel.id_transacao == id_transacao,
+                DatasetModel.id_usuario == owner_id,
+            )
             .first()
         )
         if model is None:
@@ -49,10 +75,14 @@ class RepositorioTransacao:
         self.db.refresh(model)
         return self._to_entity(model)
 
-    def delete(self, id_transacao: int) -> bool:
+    def delete(self, id_transacao: int, owner_id: int) -> bool:
         model = (
             self.db.query(TransacaoModel)
-            .filter(TransacaoModel.id_transacao == id_transacao)
+            .join(DatasetModel, DatasetModel.id_dataset == TransacaoModel.id_dataset)
+            .filter(
+                TransacaoModel.id_transacao == id_transacao,
+                DatasetModel.id_usuario == owner_id,
+            )
             .first()
         )
         if model is None:

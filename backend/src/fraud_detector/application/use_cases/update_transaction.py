@@ -10,12 +10,19 @@ class AtualizarTransacaoUseCase:
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
-    def execute(self, id_transacao: int, transaction_data: TransacaoAtualizacaoSchema):
+    def execute(
+        self,
+        id_transacao: int,
+        owner_id: int,
+        transaction_data: TransacaoAtualizacaoSchema,
+    ):
         # exclude_unset diferencia campo omitido de campo enviado explicitamente como nulo.
         updates = transaction_data.model_dump(exclude_unset=True)
         if not updates:
             raise ValueError("Nenhum campo foi informado para atualização")
-        transaction = self.transaction_repository.update(id_transacao, updates)
+        transaction = self.transaction_repository.update(
+            id_transacao, owner_id, updates
+        )
         if transaction is None:
             raise ValueError("Transação não encontrada")
         return transaction

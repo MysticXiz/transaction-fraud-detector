@@ -1,10 +1,65 @@
-__pycache__/
-.mypy_cache/
-.vscode/
+# Ambientes e variáveis locais
 .env
+.env.*
+!.env.example
+!backend/.env.example.local
+
+.venv/
+venv/
+.env/
+
+# Documentação interna e arquivos de entrega não publicados
+/docs/
+
+# Arquivos históricos, migrations não utilizadas e script local
+/database/patches/
+/migrations/
+/alembic.ini
+/iniciar.ps1
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.coverage
+coverage.xml
+htmlcov/
+
+# Testes e banco local
+*.sqlite3
+*.db
+test.db
+
+# Frontend e build
+node_modules/
+dist/
+.angular/
+coverage/
+
+# Arquivos gerados pela aplicação
+storage/
+backend/storage/
+artifacts/
+
+# IDEs e arquivos locais
+.vscode/
 .idea/
+*.iml
+
+# Logs e arquivos temporários
 *.log
-ANALISE_PROXIMOS_PASSOS.md
-iniciar-projeto.ps1
-docs/Sprint04.md
-storage/datasets/
+*.tmp
+*.swp
+*~
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Jupyter
+.ipynb_checkpoints/

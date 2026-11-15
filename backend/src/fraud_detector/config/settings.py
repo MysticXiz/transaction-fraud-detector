@@ -17,9 +17,17 @@ class Settings(BaseSettings):
     dataset_upload_chunk_bytes: int = 1024 * 1024
     ingestion_copy_buffer_bytes: int = 1024 * 1024
     ingestion_progress_every_rows: int = 50_000
+    cors_origins: list[str] = [
+        "http://localhost:4200",
+        "http://127.0.0.1:4200",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
     model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env", env_file_encoding="utf-8"
+        env_file=BASE_DIR / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
 

@@ -1,11 +1,12 @@
 import logging
 from pathlib import Path
 from time import perf_counter
-from typing import BinaryIO
+from typing import BinaryIO, Callable
 from uuid import uuid4
 
 from src.fraud_detector.computational.ingestion.dataset_csv import (
     DatasetCsvReader,
+    DatasetImportCancelledError,
     stream_upload_to_file,
 )
 from src.fraud_detector.infrastructure.models.dataset import DatasetModel
@@ -43,6 +44,8 @@ class ImportarDatasetUseCase:
         name: str,
         description: str | None,
         origin: str,
+        should_cancel: Callable[[], bool] | None = None,
+        on_processing: Callable[[], None] | None = None,
     ) -> DatasetModel:
         dataset_name = name.strip()
         if not dataset_name:
@@ -57,10 +60,18 @@ class ImportarDatasetUseCase:
         try:
             upload_started = perf_counter()
             file_hash, file_size = stream_upload_to_file(
-                stream, partial_path, self.max_upload_bytes, self.chunk_bytes
+                stream,
+                partial_path,
+                self.max_upload_bytes,
+                self.chunk_bytes,
+                should_cancel,
             )
+            if should_cancel and should_cancel():
+                raise DatasetImportCancelledError("A importação foi cancelada")
+            if on_processing:
+                on_processing()
             upload_seconds = perf_counter() - upload_started
-            if self.repository.get_by_hash(file_hash) is not None:
+            if self.repository.get_by_hash(file_hash, owner_id) is not None:
                 raise FileExistsError("Este arquivo já foi importado")
 
             artifact_path = self.storage_path / f"{file_hash}_{uuid4().hex}.csv"
@@ -87,6 +98,7 @@ class ImportarDatasetUseCase:
                 copy_buffer_bytes=self.copy_buffer_bytes,
                 progress_every_rows=self.progress_every_rows,
                 on_progress=_log_progress,
+                should_cancel=should_cancel,
             )
             total_seconds = perf_counter() - total_started
             rows_per_second = (

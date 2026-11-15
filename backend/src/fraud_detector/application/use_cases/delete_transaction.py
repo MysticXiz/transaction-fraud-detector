@@ -9,7 +9,7 @@ class ExcluirTransacaoUseCase:
     def __init__(self, transaction_repository: RepositorioTransacao):
         self.transaction_repository = transaction_repository
 
-    def execute(self, id_transacao: int) -> None:
-        deleted = self.transaction_repository.delete(id_transacao)
+    def execute(self, id_transacao: int, owner_id: int) -> None:
+        deleted = self.transaction_repository.delete(id_transacao, owner_id)
         if not deleted:
             raise ValueError("Transação não encontrada")
