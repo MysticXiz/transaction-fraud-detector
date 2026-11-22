@@ -1,7 +1,7 @@
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
-import { EMPTY, Subscription, expand, finalize, switchMap, takeWhile, timer } from 'rxjs';
+import { EMPTY, Subscription, expand, finalize, switchMap, timer } from 'rxjs';
 import { BenchmarkService } from '../../../core/services/benchmark.service';
 import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark.model';
 
@@ -23,6 +23,14 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
         <div class="page-header__actions">
         </div>
       </header>
+
+      @if (erro(); as mensagem) {
+        <div class="df-estado">
+          <h2>{{ benchmark() ? 'Atualizações interrompidas' : 'Não foi possível carregar o relatório' }}</h2>
+          <p role="alert">{{ mensagem }}</p>
+          <button class="df-btn df-btn-secundario" type="button" (click)="carregar()">Tentar novamente</button>
+        </div>
+      }
 
       @if (carregando()) {
         <div class="carregando" role="status" aria-live="polite">
@@ -83,8 +91,8 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
             <h2 class="titulo-secao">Benchmark {{ statusLabel(b.status) }}</h2>
             @if (b.mensagem_erro) {
               <p>{{ b.mensagem_erro }}</p>
-            } @else {
-              <p>Os resultados serão atualizados quando o processamento terminar.</p>
+            } @else if (atualizando()) {
+              <p>Atualizando o relatório enquanto o benchmark está em execução…</p>
             }
           </div>
         } @else {
@@ -139,12 +147,6 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
             </table>
           </div>
         </div>
-      } @else if (erro()) {
-        <div class="df-estado">
-          <h2>Não foi possível carregar o relatório</h2>
-          <p>{{ erro() }}</p>
-          <button class="df-btn df-btn-secundario" type="button" (click)="carregar()">Tentar novamente</button>
-        </div>
       }
     </div>
   `,
@@ -171,7 +173,8 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
 
   benchmark = signal<Benchmark | null>(null);
   erro = signal<string | null>(null);
-  carregando = signal(true);
+  atualizando = signal(true);
+  carregando = computed(() => this.atualizando() && !this.benchmark());
   private polling?: Subscription;
 
   pontosReais = computed(() => this.calcularPontos(this.benchmark()?.execucoes ?? []));
@@ -208,13 +211,12 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
   carregar(): void {
     this.polling?.unsubscribe();
     this.erro.set(null);
-    this.carregando.set(true);
+    this.atualizando.set(true);
     let delayMs = 1500;
     this.polling = timer(0)
       .pipe(
         switchMap(() => this.benchmarkService.obter(this.idBenchmark)),
         expand((benchmark) => {
-          this.benchmark.set(benchmark);
           if (this.isTerminal(benchmark.status)) return EMPTY;
           const delay = delayMs;
           delayMs = Math.min(Math.round(delayMs * 1.5), 8000);
@@ -222,12 +224,13 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
             switchMap(() => this.benchmarkService.obter(this.idBenchmark))
           );
         }),
-        takeWhile((benchmark) => !this.isTerminal(benchmark.status), true),
-        finalize(() => this.carregando.set(false))
+        finalize(() => this.atualizando.set(false))
       )
       .subscribe({
         next: (benchmark) => this.benchmark.set(benchmark),
-        error: () => this.erro.set('Não foi possível carregar o relatório de benchmark.'),
+        error: () => this.erro.set(this.benchmark()
+          ? 'Não foi possível atualizar o relatório. Os dados exibidos são da última consulta.'
+          : 'Não foi possível carregar o relatório de benchmark.'),
       });
   }
 

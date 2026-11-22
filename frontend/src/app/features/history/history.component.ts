@@ -73,6 +73,7 @@ import { StyledSelectComponent, StyledSelectOption } from '../../shared/componen
               </thead>
               <tbody>
                 @for (e of execucoes(); track e.id_execucao) {
+                  @let ativa = e.status === Status.PENDENTE || e.status === Status.EM_ANDAMENTO;
                   <tr>
                     <td>#{{ e.id_execucao }}</td>
                     <td>{{ e.dataset_nome ?? '—' }}</td>
@@ -81,14 +82,16 @@ import { StyledSelectComponent, StyledSelectOption } from '../../shared/componen
                     <td>{{ e.tempo_total_s ? (e.tempo_total_s | number: '1.2-2' : 'pt-BR') + 's' : '—' }}</td>
                     <td style="text-align:right">
                       <div class="acoes-execucao">
-                        <a class="df-link" [routerLink]="['/analises', e.id_execucao, 'resultados']">Ver resultados</a>
+                        <a class="df-link" [routerLink]="['/analises', e.id_execucao, ativa ? 'execucao' : 'resultados']">
+                          {{ ativa ? 'Acompanhar análise' : 'Ver resultados' }}
+                        </a>
                         @if (canWrite()) {
                         <button
                           type="button"
                           class="botao-excluir"
-                          [disabled]="e.status === Status.PENDENTE || e.status === Status.EM_ANDAMENTO || excluindoId() === e.id_execucao"
+                          [disabled]="ativa || excluindoId() === e.id_execucao"
                           [attr.aria-label]="'Excluir execução ' + e.id_execucao"
-                          [title]="e.status === Status.PENDENTE || e.status === Status.EM_ANDAMENTO ? 'Não é possível excluir uma execução em andamento' : 'Excluir execução'"
+                          [title]="ativa ? 'Não é possível excluir uma execução em andamento' : 'Excluir execução'"
                           (click)="excluir(e)"
                         >
                           {{ excluindoId() === e.id_execucao ? 'Excluindo…' : 'Excluir' }}

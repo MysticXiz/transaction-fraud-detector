@@ -19,6 +19,11 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from src.fraud_detector.application.execution_errors import (
+    ANALYSIS_FAILED,
+    public_execution_error,
+)
+
 from src.fraud_detector.api.dependencies.auth import get_current_user
 from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.api.schemas.analysis import (
@@ -76,6 +81,9 @@ from src.fraud_detector.infrastructure.models.benchmark import (
 )
 from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
+from src.fraud_detector.infrastructure.repositories.transaction_repository import (
+    owned_dataset_for_update,
+)
 
 analyses_router = APIRouter(prefix="/analises", tags=["Análises"])
 models_router = APIRouter(prefix="/modelos", tags=["Modelos"])
@@ -315,6 +323,13 @@ def create_analysis(
             )
 
     try:
+        if (
+            owned_dataset_for_update(db, current_user.id_usuario)
+            .filter(DatasetModel.id_dataset == payload.id_dataset)
+            .first()
+            is None
+        ):
+            raise AnalysisNotFoundError("Dataset não encontrado")
         execution = create_execution(
             db,
             owner_id=current_user.id_usuario,
@@ -782,6 +797,6 @@ def _execution_response(
         total_analisadas=execution.total_analisadas,
         total_registros=dataset_total or 0,
         total_suspeitas=execution.total_suspeitas,
-        mensagem_erro=execution.mensagem_erro,
+        mensagem_erro=public_execution_error(execution.mensagem_erro, ANALYSIS_FAILED),
         criado_em=execution.criado_em,
     )

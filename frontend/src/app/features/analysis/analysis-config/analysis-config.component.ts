@@ -1,8 +1,9 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { finalize } from 'rxjs';
+import { Subscription, catchError, distinctUntilChanged, finalize, map, of, switchMap } from 'rxjs';
 import { DatasetService } from '../../../core/services/dataset.service';
 import { AnalysisService } from '../../../core/services/analysis.service';
 import { Dataset, ModeloDeteccao } from '../../../core/models/dataset.model';
@@ -31,6 +32,9 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
 
       <div class="df-card cartao">
 
+      @if (avisoDataset(); as aviso) {
+        <p class="box-aviso" role="alert">{{ aviso }}</p>
+      }
       @if (carregandoDatasets()) {
         <div class="carregando" role="status" aria-live="polite">
           <span class="df-spinner df-spinner-suave" aria-hidden="true"></span>
@@ -193,6 +197,8 @@ export class AnalysisConfigComponent implements OnInit {
   private analysisService = inject(AnalysisService);
   private openClDeviceService = inject(OpenClDeviceService);
   private route = inject(ActivatedRoute);
+  private destroyRef = inject(DestroyRef);
+  private consultaDatasets?: Subscription;
   private router = inject(Router);
 
   Modo = ModoExecucao;
@@ -208,13 +214,14 @@ export class AnalysisConfigComponent implements OnInit {
   carregandoModelos = signal(true);
   erro = signal<string | null>(null);
   erroDatasets = signal<string | null>(null);
+  avisoDataset = signal<string | null>(null);
   erroModelos = signal<string | null>(null);
   calibrando = signal(false);
   resultadoCalibracao = signal<OpenCLCalibrationResult | null>(null);
   private notificationService = inject(NotificationService);
 
   form = this.fb.nonNullable.group({
-    id_dataset: [0, Validators.required],
+    id_dataset: [0, [Validators.required, Validators.min(1)]],
     id_modelo: [0, Validators.required],
     modo_execucao: [ModoExecucao.SEQUENCIAL, Validators.required],
     work_group_size: [1],
@@ -223,7 +230,12 @@ export class AnalysisConfigComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.carregarDados();
+    this.route.queryParamMap.pipe(
+      map((params) => params.get('datasetId')),
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef)
+    ).subscribe((datasetId) => this.carregarDatasets(datasetId));
+    this.carregarModelos();
     this.openClDeviceService.obterCapacidades().pipe(
       finalize(() => this.carregandoCapacidades.set(false))
     ).subscribe({
@@ -320,19 +332,42 @@ export class AnalysisConfigComponent implements OnInit {
     this.carregarModelos();
   }
 
-  carregarDatasets(): void {
+  carregarDatasets(datasetIdParam = this.route.snapshot.queryParamMap.get('datasetId')): void {
+    this.consultaDatasets?.unsubscribe();
     this.carregandoDatasets.set(true);
     this.erroDatasets.set(null);
-    this.datasetService
-      .listar()
-      .pipe(finalize(() => this.carregandoDatasets.set(false)))
-      .subscribe({
-        next: (datasets) => {
+    this.avisoDataset.set(null);
+    this.form.controls.id_dataset.setValue(0);
+
+    const id = Number(datasetIdParam);
+    const idValido = datasetIdParam !== null && /^\d+$/.test(datasetIdParam) && Number.isSafeInteger(id) && id > 0;
+    this.consultaDatasets = this.datasetService.listar().pipe(
+      switchMap((datasets) => {
+        const selecionado = datasetIdParam === null ? datasets[0] : datasets.find((ds) => ds.id_dataset === id);
+        const selecao = { datasets, selecionado };
+        if (!idValido || selecionado) return of(selecao);
+
+        return this.datasetService.obter(id).pipe(
+          map((dataset) => dataset.id_dataset === id
+            ? { datasets: [dataset, ...datasets], selecionado: dataset }
+            : selecao),
+          catchError(() => of(selecao))
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef),
+      finalize(() => this.carregandoDatasets.set(false))
+    ).subscribe({
+      next: ({ datasets, selecionado }) => {
         this.datasets.set(datasets);
         this.opcoesDataset = datasets.map((ds) => ({ valor: String(ds.id_dataset), rotulo: ds.nome }));
-        const datasetIdParam = Number(this.route.snapshot.queryParamMap.get('datasetId'));
-        const datasetSelecionado = datasets.find((d) => d.id_dataset === datasetIdParam) ?? datasets[0];
-        if (datasetSelecionado) this.form.controls.id_dataset.setValue(datasetSelecionado.id_dataset);
+        if (selecionado) {
+          this.form.controls.id_dataset.setValue(selecionado.id_dataset);
+        } else if (datasetIdParam !== null) {
+          this.avisoDataset.set(idValido
+            ? 'Não foi possível carregar o dataset solicitado.'
+            : 'O identificador do dataset solicitado é inválido.');
+          if (datasets.length) this.opcoesDataset.unshift({ valor: '0', rotulo: 'Selecione um dataset' });
+        }
       },
       error: (error: unknown) => this.erroDatasets.set(this.mensagemErro(error, 'datasets')),
     });
@@ -372,14 +407,17 @@ export class AnalysisConfigComponent implements OnInit {
   }
 
   executar(): void {
-    if (this.form.invalid) return;
+    if (this.carregandoDatasets() || this.form.invalid) return;
+    const valores = this.form.getRawValue();
+    const idDataset = Number(valores.id_dataset);
+    if (!this.datasets().some((dataset) => dataset.id_dataset === idDataset)) return;
+
     this.carregando.set(true);
     this.erro.set(null);
 
-    const valores = this.form.getRawValue();
     this.analysisService
       .executar({
-        id_dataset: valores.id_dataset,
+        id_dataset: idDataset,
         id_modelo: valores.id_modelo,
         modo_execucao: valores.modo_execucao,
         work_group_size: valores.modo_execucao === ModoExecucao.SEQUENCIAL ? 1 : valores.work_group_size,

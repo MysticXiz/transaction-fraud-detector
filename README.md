@@ -52,8 +52,8 @@ O sistema permite que analistas de fraude importem datasets de transações fina
 
 ### 1. Clone o repositório
 ```bash
-git clone <url-do-repositorio>
-cd projeto-transacao
+git clone https://github.com/MysticXiz/transaction-fraud-detector.git
+cd transaction-fraud-detector
 ```
 
 ### 2. Configure variáveis de ambiente
@@ -62,18 +62,14 @@ cd projeto-transacao
 Copy-Item .env.example .env
 ```
 
-Os valores de exemplo são suficientes para rodar localmente. Personalize as credenciais antes de compartilhar a instalação:
-- `POSTGRES_PASSWORD` - Senha segura para o banco
-- `JWT_SECRET_KEY` - Chave secreta forte para JWT (mín. 32 chars)
-- `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` — Credenciais do primeiro administrador. Use uma senha de pelo menos 12 caracteres.
-- `AUTH_COOKIE_SECURE=true` — Ative ao publicar o sistema via HTTPS. O HTTP local usa `false`.
+O `.env.example` contém valores fictícios para facilitar a demonstração local. Na sua instalação, personalize a senha do banco, a chave JWT e as credenciais do administrador no `.env`.
 
 ### 3. Suba com Docker Compose
 ```powershell
 docker compose up --build --remove-orphans
 ```
 
-Aguarde o PostgreSQL e o health check do backend. O backend processa a fila de análises e benchmarks em segundo plano.
+Aguarde o PostgreSQL e o health check do backend. O backend verifica se as tabelas e colunas necessárias estão acessíveis e processa a fila em segundo plano. O Compose disponibiliza os serviços em `localhost`.
 
 ### 4. Acesse o sistema
 - **Frontend**: http://localhost:4200
@@ -86,7 +82,7 @@ Aguarde o PostgreSQL e o health check do backend. O backend processa a fila de a
 ### Com Docker
 O PostgreSQL executa `database/schema.sql` e `database/seeds.sql` na primeira inicialização de um volume vazio. O Alembic é executado manualmente.
 
-Em um volume existente, altere a senha do usuário no PostgreSQL antes de atualizar o valor de `POSTGRES_PASSWORD` no `.env`. A variável do contêiner é aplicada na criação do volume. Se a instalação usava o segredo JWT de exemplo, gere um novo segredo e autentique-se novamente.
+Em um volume existente, altere a senha do usuário no PostgreSQL antes de atualizar o valor de `POSTGRES_PASSWORD` no `.env`. A variável do contêiner é aplicada na criação do volume.
 
 ### Execução local
 Crie um banco PostgreSQL vazio com o usuário da aplicação como proprietário. O backend monta a URL com `DATABASE_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`. Para fornecer a URL completa, configure `DATABASE_URL` no formato `postgresql+psycopg://usuario:senha@localhost:5432/banco`. Para inicializar pelo fluxo SQL, execute os comandos abaixo.
@@ -96,9 +92,9 @@ psql -h localhost -U fraud -d fraud_detection -v ON_ERROR_STOP=1 -f database/sch
 psql -h localhost -U fraud -d fraud_detection -v ON_ERROR_STOP=1 -f database/seeds.sql
 ```
 
-### Alembic (uso futuro)
+### Alembic (execução manual)
 
-A revisão `0001_initial_schema` cria o esquema completo e cadastra os modelos iniciais. Os arquivos `schema.sql` e `seeds.sql` fazem parte dessa revisão. Registre alterações futuras em novas revisões.
+A revisão `0001_initial_schema` cria o esquema completo e cadastra os modelos iniciais. Ela usa cópias SQL fixas em `database/migrations/versions/`; os scripts de inicialização do Compose são independentes. Registre alterações futuras em novas revisões.
 
 Para gerar o SQL sem conexão com o banco, execute `python -m alembic upgrade head --sql` na raiz do repositório.
 
@@ -208,7 +204,7 @@ A documentação interativa completa (Swagger/OpenAPI) está disponível em **ht
 
 ### Autenticação
 
-Os endpoints protegidos aceitam JWT Bearer no cabeçalho `Authorization`. O Angular usa uma sessão por cookie `HttpOnly` e `SameSite=Lax` com o cabeçalho `X-Requested-With: XMLHttpRequest` nas operações de escrita. Em uma publicação externa, use HTTPS e configure apenas origens CORS confiáveis.
+Os endpoints protegidos aceitam JWT Bearer no cabeçalho `Authorization`. O Angular usa uma sessão por cookie `HttpOnly` e `SameSite=Lax` com o cabeçalho `X-Requested-With: XMLHttpRequest` nas operações de escrita.
 
 **Perfis de acesso:**
 - **ADMIN**: Todas as operações, incluindo cadastro de usuários
@@ -373,7 +369,7 @@ curl -X POST http://localhost:8000/benchmarks \
 
 ## Primeiro acesso
 
-Em um banco sem usuários, a API cria o administrador com os valores de `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD`. No exemplo, o login é `adm@adm.com` com a senha `admin-local-1234`. Em um banco com a conta padrão antiga ainda usando a senha pública, as mesmas variáveis atualizam essa conta, preservando seu ID e seus dados.
+Em um banco sem usuários, a API cria o administrador com os valores de `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD`. Em um banco com a conta padrão antiga ainda usando a senha pública, as mesmas variáveis atualizam essa conta, preservando seu ID e seus dados.
 
 ### Configurações do servidor
 
@@ -398,10 +394,14 @@ O administrador pode acessar **Dashboard → Configurações do servidor** para 
 | `AUTH_COOKIE_SECURE` | `false` | Defina `true` para HTTPS |
 | `DATASET_STORAGE_PATH` | `/app/storage/datasets` | Diretório CSVs |
 | `MAX_DATASET_UPLOAD_BYTES` | `209715200` | Limite inicial de upload (200 MiB) |
+| `DATASET_UPLOAD_MULTIPART_OVERHEAD_BYTES` | `4194304` | Margem para o corpo multipart além do limite do CSV (4 MiB) |
+| `ANALYSIS_MATRIX_MEMORY_LIMIT_BYTES` | `536870912` | Orçamento estimado para a matriz da análise (512 MiB; não limita toda a memória do processo) |
 | `DATASET_UPLOAD_CHUNK_BYTES` | `1048576` | Chunk size (1MB) |
 | `INGESTION_COPY_BUFFER_BYTES` | `1048576` | Buffer COPY PostgreSQL |
 | `INGESTION_PROGRESS_EVERY_ROWS` | `50000` | Frequência progresso |
 | `CORS_ORIGINS` | origins locais | JSON array de origens CORS |
+
+Para testar cerca de 1 milhão de linhas com 28 atributos numéricos, use `ANALYSIS_MATRIX_MEMORY_LIMIT_BYTES=2147483648` no `.env`, se houver memória disponível. Recrie apenas o backend para aplicar a configuração.
 
 ## Uso de GPU (OpenCL)
 
@@ -423,11 +423,19 @@ docker compose exec backend python -c "import pyopencl as cl; print([(p.name, [d
 ## Limitações conhecidas
 
 - Análises e benchmarks pendentes ficam no PostgreSQL e continuam disponíveis após reinício. O backend marca execuções interrompidas como falha para que possam ser iniciadas novamente.
-- A leitura e a inferência trabalham em blocos. O ajuste global do pré-processador e do Isolation Forest ainda mantém a matriz numérica do dataset em memória.
+- A leitura e a inferência trabalham em blocos. O ajuste ainda mantém a matriz numérica em memória; a execução rejeita uma matriz cuja estimativa exceda o orçamento configurado.
+- Transações de datasets vinculados a análises ou benchmarks não podem ser editadas; importe outra versão dos dados para preservar os resultados históricos.
+- Jobs de importação interrompidos são reconciliados quando consultados ou cancelados; a transferência não é retomada automaticamente.
 - Nginx localiza backend por nome de serviço Compose; fora do Compose usa `proxy.conf.json`
 - OpenCL depende de runtime/drivers disponíveis
-- Alguns endpoints retornam listas completas; paginação pode ser necessária em produção
+- Alguns endpoints retornam listas completas; paginação pode ser necessária para bases maiores
 - Isolation Forest é o único detector executável. A entrada de Regressão Logística no seed é uma referência histórica.
+
+## Documentação da entrega
+
+- [Manual do Usuário](docs/01-manual-do-usuario.docx)
+- [Manual Técnico](docs/02-manual-tecnico.docx)
+- [Relatório consolidado da entrega](docs/sprint11.pdf)
 
 ## Integrantes da equipe
 

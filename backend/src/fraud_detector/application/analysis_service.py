@@ -4,7 +4,7 @@ import logging
 import threading
 import queue
 import struct
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -19,6 +19,11 @@ from numpy.typing import NDArray
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.fraud_detector.application.execution_errors import (
+    ANALYSIS_FAILED,
+    MATRIX_LIMIT_EXCEEDED,
+)
+
 from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     OpenCLDeviceType,
     OpenCLExecutionError,
@@ -27,6 +32,7 @@ from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     available_cpu_capacity,
 )
 from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
+from src.fraud_detector.config.settings import settings
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
 from src.fraud_detector.domain.enums.execution_stage import EtapaExecucao
@@ -44,7 +50,7 @@ from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 
 logger = logging.getLogger("fraud_detector.analysis")
 DEFAULT_CHUNK_SIZE = 50_000
-_WRITER_STOP = object()
+_WRITER_QUEUE_POLL_SECONDS = 0.1
 _execution_stages: dict[int, EtapaExecucao] = {}
 
 
@@ -94,6 +100,50 @@ class AnalysisRequestError(ValueError):
 
 class AnalysisNotFoundError(AnalysisRequestError):
     pass
+
+
+class AnalysisMatrixLimitError(ValueError):
+    pass
+
+
+class _AnalysisMatrixBudget:
+    def __init__(self, limit_bytes: int) -> None:
+        self.limit_bytes = limit_bytes
+        self.row_count = 0
+        self.attribute_columns: set[str] = set()
+        self.object_payload_bytes = 0
+
+    def reserve_rows(self, rows: Sequence[Any]) -> None:
+        self.row_count += len(rows)
+        self.check()
+        for row in rows:
+            if row.atributos:
+                column_count = len(self.attribute_columns)
+                self.attribute_columns.update(row.atributos)
+                if len(self.attribute_columns) != column_count:
+                    self.check()
+
+    def account_objects(self, frame: pd.DataFrame) -> None:
+        for position, dtype in enumerate(frame.dtypes):
+            if pd.api.types.is_string_dtype(dtype):
+                column = frame.iloc[:, position]
+                self.object_payload_bytes += max(
+                    0, column.memory_usage(index=False, deep=True) - len(column) * 8
+                )
+        self.check()
+
+    def check(self) -> None:
+        # Concatenation densifies the union of columns. Allow for overlapping
+        # frame/preprocessing copies, IDs before and after concatenate, and
+        # per-column metadata. This estimates matrix memory, not process RSS.
+        column_count = len(self.attribute_columns) + 2  # Time and Amount
+        estimate = (
+            self.row_count * (column_count * 8 * 5 + 8 * 2)
+            + column_count * 512
+            + self.object_payload_bytes
+        )
+        if estimate > self.limit_bytes:
+            raise AnalysisMatrixLimitError(MATRIX_LIMIT_EXCEEDED)
 
 
 def _encode_numeric_binary(value: float | Decimal, scale: int) -> bytes:
@@ -174,48 +224,73 @@ def _encode_binary_copy_batch(item: _ResultWriterItem) -> bytes:
     return header + bytes(body) + struct.pack(">h", -1)
 
 
-def _result_writer(
-    write_queue: queue.Queue[_ResultWriterItem | object],
+def _raise_writer_error(writer_errors: list[BaseException]) -> None:
+    if writer_errors:
+        raise RuntimeError(
+            "Falha ao persistir resultados da análise"
+        ) from writer_errors[0]
+
+
+def _enqueue_result(
+    write_queue: queue.Queue[_ResultWriterItem],
+    item: _ResultWriterItem,
     writer_errors: list[BaseException],
-    writer_lock: threading.Lock | None = None,
 ) -> None:
-    writer_db = SessionLocal()
-    lock = writer_lock or threading.Lock()
+    while True:
+        _raise_writer_error(writer_errors)
+        try:
+            write_queue.put(item, timeout=_WRITER_QUEUE_POLL_SECONDS)
+        except queue.Full:
+            continue
+        _raise_writer_error(writer_errors)
+        return
+
+
+def _result_writer(
+    write_queue: queue.Queue[_ResultWriterItem],
+    writer_errors: list[BaseException],
+    writer_lock: threading.Lock,
+    producer_done: threading.Event,
+) -> None:
     try:
-        while True:
-            item = write_queue.get()
-            if item is _WRITER_STOP:
-                write_queue.task_done()
-                return
-            if writer_errors:
-                write_queue.task_done()
-                continue
-            try:
-                connection = writer_db.connection().connection
-                raw_connection = getattr(connection, "driver_connection", connection)
-                with raw_connection.cursor() as cursor:
-                    with cursor.copy(
-                        "COPY resultado_deteccao "
-                        "(id_execucao, id_transacao, score_anomalia, "
-                        "is_suspeita, limiar_aplicado, chunk_id) "
-                        "FROM STDIN WITH (FORMAT BINARY)"
-                    ) as copy:
-                        copy.set_types(
-                            ("int4", "int8", "numeric", "bool", "numeric", "int4")
-                        )
-                        copy.write(_encode_binary_copy_batch(item))
-                writer_db.commit()
-            except BaseException as error:
-                writer_db.rollback()
-                with lock:
-                    if not writer_errors:
-                        writer_errors.append(error)
-                logger.exception("Falha ao persistir lote de resultados")
-                return
-            finally:
-                write_queue.task_done()
-    finally:
-        writer_db.close()
+        with SessionLocal() as writer_db:
+            while not writer_errors:
+                # Só encerra em fila vazia se o produtor já parou antes da leitura.
+                draining = producer_done.is_set()
+                try:
+                    item = write_queue.get(
+                        timeout=0 if draining else _WRITER_QUEUE_POLL_SECONDS
+                    )
+                except queue.Empty:
+                    if draining:
+                        return
+                    continue
+                try:
+                    if writer_errors:
+                        return
+                    connection = writer_db.connection().connection
+                    raw_connection = getattr(
+                        connection, "driver_connection", connection
+                    )
+                    with raw_connection.cursor() as cursor:
+                        with cursor.copy(
+                            "COPY resultado_deteccao "
+                            "(id_execucao, id_transacao, score_anomalia, "
+                            "is_suspeita, limiar_aplicado, chunk_id) "
+                            "FROM STDIN WITH (FORMAT BINARY)"
+                        ) as copy:
+                            copy.set_types(
+                                ("int4", "int8", "numeric", "bool", "numeric", "int4")
+                            )
+                            copy.write(_encode_binary_copy_batch(item))
+                    writer_db.commit()
+                finally:
+                    write_queue.task_done()
+    except BaseException as error:
+        with writer_lock:
+            if not writer_errors:
+                writer_errors.append(error)
+        logger.exception("Falha ao persistir lote de resultados")
 
 
 class _ResourceSampler:
@@ -383,10 +458,10 @@ def run_execution(
     total_analyzed = 0
     total_suspicious = 0
     sampler = _ResourceSampler()
-    writer_queue: queue.Queue[_ResultWriterItem | object] | None = None
     writer_threads: list[threading.Thread] = []
     writer_errors: list[BaseException] = []
     writer_lock = threading.Lock()
+    producer_done = threading.Event()
 
     try:
         with sampler:
@@ -405,11 +480,21 @@ def run_execution(
             frame_parts = []
             transaction_id_parts = []
             frame_build_seconds = 0.0
+            matrix_budget = _AnalysisMatrixBudget(
+                settings.analysis_matrix_memory_limit_bytes
+            )
             # Chaves JSON são strings. Rótulos inteiros evitam colisões nos lotes.
             time_column, amount_column = 0, 1
             with db.execute(statement.execution_options(yield_per=5000)) as result:
                 for rows in result.partitions(5000):
                     frame_started = perf_counter()
+                    matrix_budget.reserve_rows(rows)
+                    frame_part = _transactions_frame(
+                        rows, measure_columns=(time_column, amount_column)
+                    )
+                    matrix_budget.account_objects(frame_part)
+                    frame_parts.append(frame_part)
+                    del frame_part
                     transaction_id_parts.append(
                         np.fromiter(
                             (row.id_transacao for row in rows),
@@ -417,20 +502,16 @@ def run_execution(
                             count=len(rows),
                         )
                     )
-                    frame_parts.append(
-                        _transactions_frame(
-                            rows, measure_columns=(time_column, amount_column)
-                        )
-                    )
                     frame_build_seconds += perf_counter() - frame_started
                     del rows
             db.commit()
             read_seconds = perf_counter() - read_started - frame_build_seconds
-            if sum(len(part) for part in transaction_id_parts) < 2:
+            if matrix_budget.row_count < 2:
                 raise ValueError(
                     "A detecção Isolation Forest exige ao menos duas transações"
                 )
             _execution_stages[execution_id] = EtapaExecucao.PRE_PROCESSAMENTO
+            matrix_budget.check()
             transaction_ids = np.concatenate(transaction_id_parts)
             del transaction_id_parts
             sample_count = len(transaction_ids)
@@ -487,11 +568,13 @@ def run_execution(
 
             inference_seconds = 0.0
             writer_count = _result_writer_count()
-            writer_queue = queue.Queue(maxsize=2 * writer_count)
+            writer_queue: queue.Queue[_ResultWriterItem] = queue.Queue(
+                maxsize=2 * writer_count
+            )
             for worker_id in range(writer_count):
                 writer_thread = threading.Thread(
                     target=_result_writer,
-                    args=(writer_queue, writer_errors, writer_lock),
+                    args=(writer_queue, writer_errors, writer_lock, producer_done),
                     name=f"result-writer-{execution_id}-{worker_id}",
                     daemon=True,
                 )
@@ -527,11 +610,7 @@ def run_execution(
                         threshold,
                         chunk_id,
                     )
-                    if writer_errors:
-                        raise RuntimeError(
-                            "Falha ao persistir resultados da análise"
-                        ) from writer_errors[0]
-                    writer_queue.put(writer_item)
+                    _enqueue_result(writer_queue, writer_item, writer_errors)
                     total_analyzed += len(writer_item.transaction_ids)
                     total_suspicious += int(suspicious.sum())
                 else:
@@ -571,11 +650,7 @@ def run_execution(
                             threshold,
                             previous_chunk_id,
                         )
-                        if writer_errors:
-                            raise RuntimeError(
-                                "Falha ao persistir resultados da análise"
-                            ) from writer_errors[0]
-                        writer_queue.put(writer_item)
+                        _enqueue_result(writer_queue, writer_item, writer_errors)
                         total_analyzed += len(writer_item.transaction_ids)
                         total_suspicious += int(previous_suspicious.sum())
 
@@ -592,11 +667,7 @@ def run_execution(
                             threshold,
                             chunk_id,
                         )
-                        if writer_errors:
-                            raise RuntimeError(
-                                "Falha ao persistir resultados da análise"
-                            ) from writer_errors[0]
-                        writer_queue.put(writer_item)
+                        _enqueue_result(writer_queue, writer_item, writer_errors)
                         total_analyzed += len(writer_item.transaction_ids)
                         total_suspicious += int(suspicious.sum())
                     else:
@@ -631,11 +702,7 @@ def run_execution(
                         threshold,
                         previous_chunk_id,
                     )
-                    if writer_errors:
-                        raise RuntimeError(
-                            "Falha ao persistir resultados da análise"
-                        ) from writer_errors[0]
-                    writer_queue.put(writer_item)
+                    _enqueue_result(writer_queue, writer_item, writer_errors)
                     total_analyzed += len(writer_item.transaction_ids)
                     total_suspicious += int(previous_suspicious.sum())
                     current.total_analisadas = total_analyzed
@@ -649,15 +716,10 @@ def run_execution(
             )
             _execution_stages[execution_id] = EtapaExecucao.GRAVACAO
             drain_started = perf_counter()
-            if writer_queue is not None:
-                for _ in writer_threads:
-                    writer_queue.put(_WRITER_STOP)
-                for writer_thread in writer_threads:
-                    writer_thread.join()
-            if writer_errors:
-                raise RuntimeError(
-                    "Falha ao persistir resultados da análise"
-                ) from writer_errors[0]
+            producer_done.set()
+            for writer_thread in writer_threads:
+                writer_thread.join()
+            _raise_writer_error(writer_errors)
             logger.info(
                 "Análise %s: espera pela gravação final em %.3fs",
                 execution_id,
@@ -676,10 +738,9 @@ def run_execution(
             sampler=sampler,
         )
     except Exception as error:
-        if writer_queue is not None and writer_threads:
+        producer_done.set()
+        if writer_threads:
             try:
-                for _ in writer_threads:
-                    writer_queue.put(_WRITER_STOP)
                 for writer_thread in writer_threads:
                     writer_thread.join(timeout=5)
             except Exception:
@@ -698,7 +759,11 @@ def run_execution(
         if current is not None:
             if current.status != StatusExecucao.CANCELADA:
                 current.status = StatusExecucao.FALHA
-                current.mensagem_erro = str(error)[:2000]
+                current.mensagem_erro = (
+                    MATRIX_LIMIT_EXCEEDED
+                    if isinstance(error, AnalysisMatrixLimitError)
+                    else ANALYSIS_FAILED
+                )
             current.finalizada_em = datetime.now(UTC)
             current.tempo_total_s = Decimal(str(perf_counter() - started))
             current.total_analisadas = total_analyzed
