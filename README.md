@@ -2,7 +2,7 @@
 
 ## Visão geral
 
-Sistema full-stack para importação de datasets, detecção de transações suspeitas, acompanhamento de análises e execução de benchmarks com OpenCL.
+Projeto acadêmico de execução local para importar datasets, identificar transações suspeitas, acompanhar análises e executar benchmarks com OpenCL.
 
 - **Backend**: FastAPI, SQLAlchemy 2, PostgreSQL e PyOpenCL
 - **Frontend**: Angular 22, RxJS e TypeScript
@@ -46,7 +46,7 @@ O sistema permite que analistas de fraude importem datasets de transações fina
 - Python 3.11+
 - PostgreSQL 16+
 - Node.js 24 e npm
-- Runtime OpenCL compatível (PoCL, NVIDIA CUDA, AMD ROCm, Intel OpenCL)
+- Runtime OpenCL compatível para análise paralela e benchmark OpenCL (não é necessário para análise sequencial)
 
 ## Instruções de instalação e configuração
 
@@ -138,24 +138,32 @@ npm run start:proxy  # usa proxy.conf.json para /api -> localhost:8000
 ```
 
 ### Testes e validação
+
+Na raiz, com o ambiente virtual ativo e o `.env` preparado:
+
 ```powershell
-# Backend
-python -m pytest tests
-python -m ruff check backend tests
-python -m compileall -q backend/src tests
+python -m pip install -r backend/requirements.txt ruff black httpx
+$env:RUN_POSTGRES_INTEGRATION='0'
+python -m pytest tests/unit
+python -m ruff check backend tests database/migrations
+python -m black --check backend tests database/migrations
+docker compose config --quiet
+```
 
-# Frontend
+Os testes de integração exigem um PostgreSQL de teste com `database/schema.sql` e `database/seeds.sql` aplicados. Configure `DATABASE_URL` para esse banco e `RUN_POSTGRES_INTEGRATION=1` antes de rodar `python -m pytest tests/integration`. O [workflow do CI](.github/workflows/pipeline.yaml) prepara o PostgreSQL e o runtime OpenCL para executar a suíte completa.
+
+Para validar o frontend:
+
+```powershell
 cd frontend
-npm run build -- --configuration production
-
-# Docker
-docker compose config
+npm ci
+npm run build:prod
 ```
 
 ## Estrutura do projeto
 
 ```
-projeto-transacao/
+transaction-fraud-detector/
 ├── backend/
 │   ├── src/fraud_detector/
 │   │   ├── api/
@@ -174,7 +182,7 @@ projeto-transacao/
 │   │   ├── core/
 │   │   │   ├── models/          # Interfaces TypeScript (Usuario, Dataset, etc.)
 │   │   │   ├── services/        # AuthService, DatasetService, AnalysisService, BenchmarkService
-│   │   │   ├── interceptors/    # authInterceptor (JWT + 401 handling)
+│   │   │   ├── interceptors/    # Sessão por cookie e tratamento de 401
 │   │   │   └── guards/          # authGuard, roleGuard
 │   │   ├── layout/shell/        # Sidebar fixa + router-outlet
 │   │   ├── shared/components/   # StatCard, StatusBadge
@@ -192,6 +200,9 @@ projeto-transacao/
 │   ├── schema.sql               # DDL completo
 │   ├── seeds.sql                # Dados iniciais
 │   └── migrations/              # Revisões do Alembic
+├── docs/                        # Manuais e relatório da entrega
+├── scripts/                     # Gerador de CSV sintético
+├── tests/                       # Testes de unidade, integração e desempenho
 ├── alembic.ini
 ├── docker-compose.yml
 ├── .env.example
@@ -222,6 +233,8 @@ Os endpoints protegidos aceitam JWT Bearer no cabeçalho `Authorization`. O Angu
 | POST | `/auth/register` | Cria usuário (apenas ADMIN) | ADMIN |
 | GET | `/auth/me` | Perfil do usuário logado | JWT |
 | PATCH | `/auth/me` | Atualiza nome, email ou senha | Escrita |
+| GET | `/auth/users` | Lista usuários | ADMIN |
+| PUT | `/auth/users/{id_usuario}` | Atualiza usuário | ADMIN |
 | DELETE | `/auth/users/{id_usuario}` | Exclui usuário (proteções) | ADMIN |
 
 #### Transações (`/transactions`)
@@ -236,13 +249,20 @@ Os endpoints protegidos aceitam JWT Bearer no cabeçalho `Authorization`. O Angu
 #### Datasets (`/datasets`)
 | Método | Rota | Descrição | Auth |
 |--------|------|-----------|------|
-| GET | `/datasets` | Lista datasets (com filtros/paginação) | JWT |
+| GET | `/datasets` | Lista datasets do usuário, paginados por `offset` e `limit` | JWT |
+| GET | `/datasets/limite-upload` | Consulta o limite efetivo de upload | Escrita |
 | GET | `/datasets/{id}` | Detalhes + amostra | JWT |
 | POST | `/datasets/importacoes` | Cria job de importação | Escrita |
 | POST | `/datasets/importacoes/{id}/arquivo` | Upload CSV (multipart) | Escrita |
 | GET | `/datasets/importacoes/{id}` | Status do job | JWT |
 | POST | `/datasets/importacoes/{id}/cancelar` | Cancela importação | Escrita |
 | DELETE | `/datasets/{id}` | Remove dataset | Escrita |
+
+#### Configurações administrativas (`/admin/configuracoes`)
+| Método | Rota | Descrição | Auth |
+|--------|------|-----------|------|
+| GET | `/admin/configuracoes/uploads` | Consulta a configuração de upload | ADMIN |
+| PUT | `/admin/configuracoes/uploads` | Altera o limite global de upload | ADMIN |
 
 #### Modelos (`/modelos`)
 | Método | Rota | Descrição | Auth |
@@ -266,7 +286,7 @@ Os endpoints protegidos aceitam JWT Bearer no cabeçalho `Authorization`. O Angu
 | Método | Rota | Descrição | Auth |
 |--------|------|-----------|------|
 | GET | `/benchmarks/capacidades` | Dispositivos OpenCL | JWT |
-| POST | `/benchmarks` | Cria benchmark comparativo | Escrita |
+| POST | `/benchmarks` | Cria benchmark comparativo ou somente paralelo | Escrita |
 | GET | `/benchmarks/{id}` | Relatório com execuções | JWT |
 | POST | `/benchmarks/{id}/cancelar` | Cancela benchmark | Escrita |
 
@@ -288,20 +308,26 @@ Resposta:
 ```
 
 #### Criar dataset (importação)
+
+Para gerar um CSV de exemplo, execute `node scripts/gerar-dataset.mjs 1000 storage/transacoes.csv` na raiz do projeto (requer Node.js). O campo `nome_arquivo` deve corresponder ao nome enviado no upload. Use o `id_importacao` retornado na criação do job no lugar de `{id}` no comando seguinte.
+
 ```bash
 # 1. Criar job
 curl -X POST http://localhost:8000/datasets/importacoes \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"nome": "Meu Dataset", "origem": "csv", "descricao": "Transações jan/2024"}'
+  -d '{"nome": "Meu Dataset", "origem": "csv", "descricao": "Transações de demonstração", "nome_arquivo": "transacoes.csv"}'
 
 # 2. Upload do arquivo (multipart)
 curl -X POST http://localhost:8000/datasets/importacoes/{id}/arquivo \
   -H "Authorization: Bearer $TOKEN" \
-  -F "arquivo=@transacoes.csv"
+  -F "arquivo=@storage/transacoes.csv"
 ```
 
 #### Executar análise
+
+Use o `id_dataset` retornado pela importação e consulte `GET /modelos` para obter o ID do Isolation Forest. A imagem padrão do Compose oferece OpenCL em CPU. O backend recomenda um tamanho de work-group se o campo for omitido; para escolher um valor, consulte `GET /analises/capacidades`.
+
 ```bash
 curl -X POST http://localhost:8000/analises \
   -H "Authorization: Bearer $TOKEN" \
@@ -310,8 +336,7 @@ curl -X POST http://localhost:8000/analises \
     "id_dataset": 1,
     "id_modelo": 1,
     "modo_execucao": "PARALELO",
-    "tipo_dispositivo": "GPU",
-    "work_group_size": 256
+    "tipo_dispositivo": "CPU"
   }'
 ```
 
@@ -352,6 +377,8 @@ O speedup de inferência divide o tempo sequencial pelo tempo da configuração 
 O treinamento usa uma thread no modo sequencial e a capacidade de CPU detectada no modo paralelo. Os logs do backend mostram o dispositivo OpenCL, as unidades de computação e a ocupação média do processo durante as fases de treinamento e inferência. A ocupação durante a inferência inclui as threads de gravação que estiverem ativas nessa fase.
 
 O tempo total inclui leitura, pré-processamento, ajuste do modelo, aquecimento e gravação dos resultados. Benchmarks antigos com execução paralela usam a medição anterior e precisam ser executados novamente para obter o speedup pelo método atual.
+
+O exemplo compara uma execução sequencial com OpenCL em CPU, que está disponível no Compose padrão. Consulte `GET /benchmarks/capacidades` antes de informar tamanhos de work-group adicionais.
 ```bash
 curl -X POST http://localhost:8000/benchmarks \
   -H "Authorization: Bearer $TOKEN" \
@@ -361,8 +388,7 @@ curl -X POST http://localhost:8000/benchmarks \
     "id_modelo": 1,
     "configuracoes": [
       {"modo_execucao": "SEQUENCIAL", "work_group_size": 1, "rotulo": "Seq"},
-      {"modo_execucao": "PARALELO", "work_group_size": 256, "rotulo": "Par 256"},
-      {"modo_execucao": "PARALELO", "work_group_size": 512, "rotulo": "Par 512"}
+      {"modo_execucao": "PARALELO", "tipo_dispositivo": "CPU", "rotulo": "OpenCL CPU"}
     ]
   }'
 ```
