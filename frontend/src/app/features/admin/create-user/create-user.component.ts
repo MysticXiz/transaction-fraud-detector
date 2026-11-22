@@ -24,8 +24,15 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
 
         @if (etapa() === 'formulario') {
           <form class="etapa" [formGroup]="form" (ngSubmit)="continuar()">
+            @let nomeInvalido = form.controls.nome.touched && form.controls.nome.invalid;
             <label class="df-label" for="nome">Nome</label>
-            <input id="nome" class="df-input" type="text" formControlName="nome" placeholder="Maria da Silva" />
+            <input id="nome" class="df-input" type="text" formControlName="nome" placeholder="Maria da Silva"
+              [attr.aria-invalid]="nomeInvalido ? 'true' : null" [attr.aria-describedby]="nomeInvalido ? 'nome-erro' : null" />
+            @if (nomeInvalido) {
+              <small id="nome-erro" class="validacao validacao-erro" role="alert">
+                {{ form.controls.nome.hasError('required') ? 'O nome é obrigatório.' : 'Informe um nome com pelo menos 3 caracteres.' }}
+              </small>
+            }
 
             <label class="df-label campo-espaco" for="email">E-mail</label>
             <input id="email" class="df-input" type="email" formControlName="email" placeholder="usuario@sistema.com" (focus)="tocar('email')" />

@@ -70,9 +70,9 @@ import { AnalysisService, DetalheTransacaoResponse } from '../../../core/service
                 <td>{{ h.score_calculado | number: '1.4-4' : 'pt-BR' }}</td>
                 <td>
                   @if (h.equivalente_ao_baseline === null) {
-                    <span class="baseline">- Baseline -</span>
+                    <span class="baseline">Sem baseline</span>
                   } @else if (h.equivalente_ao_baseline) {
-                    <span class="identico">✔ Idêntico</span>
+                    <span class="identico">✔ Equivalente dentro da tolerância</span>
                   } @else {
                     <span class="cor-erro">✘ Divergente</span>
                   }

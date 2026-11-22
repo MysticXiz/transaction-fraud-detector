@@ -39,13 +39,15 @@ services:
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       DATASET_STORAGE_PATH: /app/storage/datasets
       MAX_DATASET_UPLOAD_BYTES: ${MAX_DATASET_UPLOAD_BYTES:-209715200}
+      DATASET_UPLOAD_MULTIPART_OVERHEAD_BYTES: ${DATASET_UPLOAD_MULTIPART_OVERHEAD_BYTES:-4194304}
+      ANALYSIS_MATRIX_MEMORY_LIMIT_BYTES: ${ANALYSIS_MATRIX_MEMORY_LIMIT_BYTES:-536870912}
       DATASET_UPLOAD_CHUNK_BYTES: ${DATASET_UPLOAD_CHUNK_BYTES:-1048576}
       INGESTION_COPY_BUFFER_BYTES: ${INGESTION_COPY_BUFFER_BYTES:-1048576}
       INGESTION_PROGRESS_EVERY_ROWS: ${INGESTION_PROGRESS_EVERY_ROWS:-50000}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:4200","http://127.0.0.1:4200"]}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     volumes:
       - dataset-storage:/app/storage/datasets
     depends_on:
@@ -66,7 +68,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-4200}:80"
+      - "127.0.0.1:${FRONTEND_PORT:-4200}:80"
     depends_on:
       backend:
         condition: service_healthy

@@ -3,18 +3,20 @@ from asyncio import to_thread
 from contextlib import asynccontextmanager
 from threading import Event, Thread
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.fraud_detector.infrastructure import models  # noqa: F401
 from src.fraud_detector.config.settings import settings
 from src.fraud_detector.infrastructure.database.database import (
     SessionLocal,
+    check_schema,
     engine,
-    test_connection,
 )
 from src.fraud_detector.infrastructure.seed_admin import seed_bootstrap_admin
 from src.fraud_detector.worker import process_queue
+from src.fraud_detector.api.resource_middleware import UploadBodyLimitMiddleware
 from src.fraud_detector.api.routes.auth import auth_router
 from src.fraud_detector.api.routes.datasets import datasets_router
 from src.fraud_detector.api.routes.analyses import analyses_router, models_router
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI):
 
 # A aplicação concentra apenas a composição da API; regras de negócio ficam nas camadas abaixo.
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(UploadBodyLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,9 +71,12 @@ async def read_root():
     return {"message": "Hello, World!"}
 
 
-@app.get("/health")
+@app.get("/health", responses={503: {"description": "Database not ready"}})
 def health_check():
-    test_connection()
+    try:
+        check_schema()
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Database not ready") from exc
     return {"status": "ok"}
 
 

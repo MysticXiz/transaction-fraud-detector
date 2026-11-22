@@ -8,6 +8,7 @@ from sqlalchemy import exists, select, update
 
 from src.fraud_detector.application.analysis_service import run_execution
 from src.fraud_detector.application.benchmark_service import run_benchmark
+from src.fraud_detector.application.execution_errors import EXECUTION_INTERRUPTED
 from src.fraud_detector.domain.enums.execution_status import StatusExecucao
 from src.fraud_detector.infrastructure.database.compute_lock import try_compute_lock
 from src.fraud_detector.infrastructure.database.database import SessionLocal
@@ -18,7 +19,6 @@ from src.fraud_detector.infrastructure.models.benchmark import (
 from src.fraud_detector.infrastructure.models.execution import ExecucaoAnaliseModel
 
 logger = logging.getLogger(__name__)
-_INTERRUPTED = "Execução interrompida pela parada do backend. Inicie uma nova execução."
 
 
 def process_next_job() -> bool:
@@ -33,7 +33,7 @@ def process_next_job() -> bool:
                 .where(ExecucaoAnaliseModel.status == StatusExecucao.EM_ANDAMENTO)
                 .values(
                     status=StatusExecucao.FALHA,
-                    mensagem_erro=_INTERRUPTED,
+                    mensagem_erro=EXECUTION_INTERRUPTED,
                     finalizada_em=datetime.now(UTC),
                 )
             )
@@ -51,7 +51,7 @@ def process_next_job() -> bool:
                         & BenchmarkModel.configuracao.is_(None)
                     )
                 )
-                .values(status="FALHA", mensagem_erro=_INTERRUPTED)
+                .values(status="FALHA", mensagem_erro=EXECUTION_INTERRUPTED)
             )
             db.execute(
                 update(ExecucaoAnaliseModel)
@@ -70,7 +70,7 @@ def process_next_job() -> bool:
                 )
                 .values(
                     status=StatusExecucao.FALHA,
-                    mensagem_erro=_INTERRUPTED,
+                    mensagem_erro=EXECUTION_INTERRUPTED,
                     finalizada_em=datetime.now(UTC),
                 )
             )

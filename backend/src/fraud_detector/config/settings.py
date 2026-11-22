@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     max_dataset_upload_bytes: int = Field(
         default=200 * MIB, ge=MIB, le=MAX_UPLOAD_LIMIT_MIB * MIB
     )
+    dataset_upload_multipart_overhead_bytes: int = Field(
+        default=4 * MIB, gt=0, le=16 * MIB
+    )
+    analysis_matrix_memory_limit_bytes: int = Field(default=512 * MIB, gt=0)
     dataset_upload_chunk_bytes: int = 1024 * 1024
     ingestion_copy_buffer_bytes: int = 1024 * 1024
     ingestion_progress_every_rows: int = 50_000

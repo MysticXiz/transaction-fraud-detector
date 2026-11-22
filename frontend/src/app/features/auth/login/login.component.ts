@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { finalize, switchMap } from 'rxjs';
 import { AuthService } from '../../../core/services/auth.service';
 import { emailComDominioValido } from '../../../core/validators/email.validator';
@@ -84,6 +84,7 @@ export class LoginComponent {
   private fb = inject(FormBuilder);
   private auth = inject(AuthService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   carregando = signal(false);
   erro = signal<string | null>(null);
@@ -110,12 +111,24 @@ export class LoginComponent {
       )
       .subscribe({
         next: () => {
-          this.router.navigateByUrl('/dashboard');
+          void this.router.navigateByUrl(this.destinoAposLogin(), { replaceUrl: true });
         },
         error: (err) => {
           this.auth.clearSession();
           this.erro.set(err?.status === 401 ? 'E-mail ou senha inválidos.' : 'Não foi possível acessar o sistema.');
         },
       });
+  }
+
+  private destinoAposLogin(): string {
+    const destino = this.route.snapshot.queryParamMap.get('returnUrl');
+    if (!destino || /[\u0000-\u001f\u007f]/.test(destino)) return '/dashboard';
+
+    const [caminho] = destino.split(/[?#]/, 1);
+    // Accept ordinary app paths only; keep the query string and fragment intact.
+    if (!/^\/(?:[\w-]+\/)*[\w-]*$/.test(caminho) || caminho === '/login' || caminho === '/login/') {
+      return '/dashboard';
+    }
+    return destino;
   }
 }

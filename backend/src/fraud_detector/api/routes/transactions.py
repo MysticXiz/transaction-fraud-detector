@@ -9,6 +9,7 @@ from src.fraud_detector.api.schemas.transaction import (
 )
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
 from src.fraud_detector.infrastructure.repositories.transaction_repository import (
+    DatasetTransactionConflictError,
     RepositorioTransacao,
 )
 from src.fraud_detector.application.use_cases.create_transaction import (
@@ -40,6 +41,10 @@ def create_transaction(
         return CriarTransacaoUseCase(repository).execute(
             transaction_data, current_user.id_usuario
         )
+    except DatasetTransactionConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
@@ -81,6 +86,10 @@ def update_transaction(
         return AtualizarTransacaoUseCase(repository).execute(
             id_transacao, current_user.id_usuario, transaction_data
         )
+    except DatasetTransactionConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
     except ValueError as error:
         raise HTTPException(
             status_code=(
@@ -102,6 +111,10 @@ def delete_transaction(
         ExcluirTransacaoUseCase(repository).execute(
             id_transacao, current_user.id_usuario
         )
+    except DatasetTransactionConflictError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Transação não encontrada"

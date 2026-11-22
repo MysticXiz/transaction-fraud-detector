@@ -9,7 +9,7 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-DATABASE_DIR = Path(__file__).resolve().parents[2]
+SNAPSHOT_DIR = Path(__file__).resolve().parent
 
 
 def _execute_script(sql: str) -> None:
@@ -20,13 +20,10 @@ def _execute_script(sql: str) -> None:
 
 
 def upgrade() -> None:
-    # Os mesmos arquivos inicializam volumes Docker vazios e são fixos nesta revisão.
-    schema = (DATABASE_DIR / "schema.sql").read_text(encoding="utf-8")
-    _, schema = schema.split("\nBEGIN;\n", 1)
-    schema, _ = schema.rsplit("\nCOMMIT;", 1)
-    _execute_script(schema.strip())
-    seeds = (DATABASE_DIR / "seeds.sql").read_text(encoding="utf-8")
-    _execute_script(seeds.strip())
+    # Snapshots desta revisão; os scripts de inicialização do Docker podem evoluir.
+    for filename in ("0001_schema.sql", "0001_seeds.sql"):
+        sql = (SNAPSHOT_DIR / filename).read_text(encoding="utf-8")
+        _execute_script(sql.strip())
 
 
 def downgrade() -> None:

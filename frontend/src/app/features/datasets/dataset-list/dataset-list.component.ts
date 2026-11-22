@@ -51,12 +51,13 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
           <span class="visually-hidden">Buscar datasets</span>
           <input
             type="search"
-            [(ngModel)]="termoBusca"
+            [ngModel]="termoBusca()"
+            (ngModelChange)="termoBusca.set($event)"
             placeholder="Buscar por nome ou origem"
             autocomplete="off"
           />
-          @if (termoBusca) {
-            <button type="button" class="limpar-busca" aria-label="Limpar busca" (click)="termoBusca = ''">×</button>
+          @if (termoBusca()) {
+            <button type="button" class="limpar-busca" aria-label="Limpar busca" (click)="termoBusca.set('')">×</button>
           }
         </label>
         <div class="resumo-lista" aria-live="polite">
@@ -91,9 +92,9 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
         </div>
       } @else if (resultadoBusca().length === 0) {
         <div class="df-estado">
-          <h2>Nenhum resultado para “{{ termoBusca }}”</h2>
-          <p>Revise o texto digitado ou limpe a busca.</p>
-          <button type="button" class="df-btn df-btn-secundario" (click)="termoBusca = ''">Limpar busca</button>
+          <h2>Nenhum resultado para “{{ termoBusca() }}”</h2>
+          <p>{{ temMais() ? 'A busca considera apenas os datasets carregados.' : 'Revise o texto digitado ou limpe a busca.' }}</p>
+          <button type="button" class="df-btn df-btn-secundario" (click)="termoBusca.set('')">Limpar busca</button>
         </div>
       } @else {
         <div class="tabela-wrap">
@@ -146,7 +147,6 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
                         <span aria-hidden="true">↗</span> Analisar
                       </button>
                       }
-                      @if (canWrite()) {
                       <button
                         type="button"
                         class="botao-icone"
@@ -157,7 +157,7 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
                       >
                         <span aria-hidden="true">{{ detalheAberto() === dataset.id_dataset ? '−' : '⋯' }}</span>
                       </button>
-                      }
+                      @if (canWrite()) {
                       <button
                         type="button"
                         class="botao-icone botao-excluir"
@@ -168,6 +168,7 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
                       >
                         <span aria-hidden="true">{{ excluindoId() === dataset.id_dataset ? '…' : '×' }}</span>
                       </button>
+                      }
                     </div>
                   </td>
                 </tr>
@@ -214,7 +215,9 @@ type SortColumn = 'nome' | 'origem' | 'total_registros' | 'importado_em';
             </tbody>
           </table>
         </div>
+      }
 
+      @if (!erroLista() && datasets().length) {
         <footer class="rodape-lista">
           <span>Datas ordenados por {{ nomeOrdenacao() }}</span>
           @if (temMais()) {
@@ -305,13 +308,13 @@ export class DatasetListComponent implements OnInit {
   carregandoDetalheId = signal<number | null>(null);
   erroDetalhe = signal<string | null>(null);
   excluindoId = signal<number | null>(null);
-  termoBusca = '';
+  termoBusca = signal('');
   sortColumn = signal<SortColumn>('importado_em');
   sortDirection = signal<'asc' | 'desc'>('desc');
   totalCarregado = signal(0);
   temMais = signal(false);
   resultadoBusca = computed(() => {
-    const query = this.termoBusca.trim().toLocaleLowerCase('pt-BR');
+    const query = this.termoBusca().trim().toLocaleLowerCase('pt-BR');
     const rows = this.datasets().filter((dataset) =>
       !query || `${dataset.nome} ${dataset.origem ?? ''}`.toLocaleLowerCase('pt-BR').includes(query),
     );
@@ -422,6 +425,7 @@ export class DatasetListComponent implements OnInit {
   }
 
   excluir(dataset: Dataset): void {
+    if (!this.canWrite()) return;
     const confirmar = window.confirm(`Excluir o dataset “${dataset.nome}”? Esta ação não pode ser desfeita.`);
     if (!confirmar) return;
     this.excluindoId.set(dataset.id_dataset);

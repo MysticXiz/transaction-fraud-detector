@@ -119,7 +119,7 @@ const ETAPAS: Record<EtapaExecucao, { titulo: string; descricao: string }> = {
           }
           @if (!ativa() || erro()) {
             <button class="df-btn df-btn-primary" type="button" (click)="voltar()">
-              {{ status() === Status.CONCLUIDA ? 'Ver resultados' : 'Voltar para análises' }}
+              {{ status() === Status.CONCLUIDA ? 'Ver resultados' : 'Voltar ao histórico' }}
             </button>
           }
         </footer>
@@ -301,7 +301,7 @@ export class AnalysisProgressComponent implements OnInit {
       this.router.navigate(['/analises', idExecucao, 'resultados']);
       return;
     }
-    this.router.navigateByUrl('/analises');
+    void this.router.navigateByUrl('/historico');
   }
 
   private aplicarProcesso(process: ManagedProcess): void {
