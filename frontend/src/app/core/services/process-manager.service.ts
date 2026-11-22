@@ -10,6 +10,8 @@ import {
   Subscription,
   expand,
   interval,
+  map,
+  of,
   switchMap,
   takeWhile,
   timer,
@@ -432,27 +434,17 @@ export class ProcessManagerService {
             );
             return;
           }
-          const dataset = event.body;
-          this.datasetImport.update((process) =>
-            process
-              ? {
-                  ...process,
-                  status: 'completed',
-                  progress: 100,
-                  bytesSent: process.size,
-                  dataset,
-                  elapsedSeconds: Math.floor((Date.now() - process.startedAt) / 1000),
-                }
-              : process
-          );
-          this.datasetImportCompleted.next(dataset);
+          this.completeImport(importId, event.body);
           this.datasetImportSubscription = undefined;
-          this.importStartSubscription = undefined;
         }
       },
       error: (error: unknown) => {
         if (this.datasetImport()?.status !== 'cancelling') {
-          this.failImport(this.errorMessage(error));
+          if (error instanceof HttpErrorResponse && error.status === 504) {
+            this.watchImportJob(importId);
+          } else {
+            this.failImport(this.errorMessage(error));
+          }
         }
         this.datasetImportSubscription = undefined;
       },
@@ -490,9 +482,10 @@ export class ProcessManagerService {
       next: (job) => {
         this.datasetImportSubscription?.unsubscribe();
         this.datasetImportSubscription = undefined;
-        this.updateImportJob(job);
-        if (job.status === 'CANCELAMENTO_SOLICITADO') {
-          this.watchImportCancellation(jobId);
+        if (job.status === 'CANCELAMENTO_SOLICITADO' || job.status === 'CONCLUIDO') {
+          this.watchImportJob(jobId);
+        } else {
+          this.updateImportJob(job);
         }
       },
       error: (error: unknown) => {
@@ -505,32 +498,63 @@ export class ProcessManagerService {
     });
   }
 
-  private watchImportCancellation(jobId: number): void {
+  private watchImportJob(jobId: number): void {
     this.importStatusSubscription?.unsubscribe();
+    const finished = (job: DatasetImportJob) =>
+      this.isImportJobTerminal(job.status) || job.status === 'PENDENTE';
     const subscription = timer(0)
       .pipe(
         switchMap(() => this.datasetService.obterImportacao(jobId)),
         expand((job) =>
-          this.isImportJobTerminal(job.status)
+          finished(job)
             ? EMPTY
             : timer(1000).pipe(switchMap(() => this.datasetService.obterImportacao(jobId)))
         ),
-        takeWhile((job) => !this.isImportJobTerminal(job.status), true)
+        takeWhile((job) => !finished(job), true),
+        switchMap((job) =>
+          job.status === 'CONCLUIDO' && job.id_dataset !== null
+            ? this.datasetService.obter(job.id_dataset).pipe(map((dataset) => ({ job, dataset })))
+            : of({ job, dataset: null })
+        )
       )
       .subscribe({
-        next: (job) => this.updateImportJob(job),
+        next: ({ job, dataset }) => {
+          if (dataset) {
+            this.completeImport(jobId, dataset);
+          } else if (job.status === 'PENDENTE') {
+            this.failImport('O servidor não confirmou o recebimento do arquivo. Tente enviar novamente.');
+          } else if (job.status === 'CONCLUIDO') {
+            this.failImport('A importação foi concluída sem um identificador de dataset.');
+          } else {
+            this.updateImportJob(job);
+          }
+        },
         error: (error: unknown) => {
-          this.datasetImport.update((current) =>
-            current
-              ? { ...current, error: `Não foi possível confirmar o cancelamento: ${this.errorMessage(error)}` }
-              : current
-          );
+          if (this.datasetImport()?.jobId === jobId) {
+            this.failImport(`Não foi possível consultar a importação. Confira a lista de datasets antes de reenviar. ${this.errorMessage(error)}`);
+          }
         },
         complete: () => {
           this.importStatusSubscription = undefined;
         },
       });
     this.importStatusSubscription = subscription;
+  }
+
+  private completeImport(jobId: number, dataset: Dataset): void {
+    const process = this.datasetImport();
+    if (!process || process.jobId !== jobId || process.status === 'completed') return;
+    this.datasetImport.set({
+      ...process,
+      status: 'completed',
+      progress: 100,
+      bytesSent: process.size,
+      dataset,
+      error: null,
+      elapsedSeconds: Math.floor((Date.now() - process.startedAt) / 1000),
+    });
+    this.importStartSubscription = undefined;
+    this.datasetImportCompleted.next(dataset);
   }
 
   private updateImportJob(job: DatasetImportJob): void {
@@ -553,16 +577,9 @@ export class ProcessManagerService {
       if (job.status === 'FALHA') {
         return { ...current, status: 'failed', error: job.mensagem_erro };
       }
-      if (job.status === 'CONCLUIDO') {
-        return {
-          ...current,
-          status: 'completed',
-          progress: 100,
-          bytesSent: current.size,
-          error: null,
-        };
+      if (job.status === 'PROCESSANDO' || job.status === 'RECEBENDO') {
+        return { ...current, status: 'processing' };
       }
-      if (job.status === 'PROCESSANDO') return { ...current, status: 'processing' };
       return current;
     });
   }

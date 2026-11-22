@@ -1,13 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
-from src.fraud_detector.api.dependencies.auth import get_current_user
+from src.fraud_detector.api.dependencies.auth import (
+    SESSION_COOKIE,
+    get_current_user,
+    require_session_header,
+)
+from src.fraud_detector.config.settings import settings
 from src.fraud_detector.api.schemas.user import (
     TokenRespostaSchema,
     UsuarioLoginSchema,
     UsuarioCadastroSchema,
     UsuarioRespostaSchema,
     UsuarioAtualizacaoSchema,
+    UsuarioAdministracaoSchema,
 )
 from src.fraud_detector.infrastructure.database.database import get_db
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
@@ -21,6 +27,9 @@ from src.fraud_detector.application.use_cases.register_user import (
     RegistrarUsuarioUseCase,
 )
 from src.fraud_detector.application.use_cases.login_user import LoginUsuarioUseCase
+from src.fraud_detector.application.use_cases.manage_users import (
+    GerenciarUsuariosUseCase,
+)
 from src.fraud_detector.application.use_cases.update_current_user import (
     AtualizarUsuarioAtualUseCase,
 )
@@ -54,6 +63,39 @@ def login(
     return login_use_case.execute(credentials)
 
 
+@auth_router.post("/session", status_code=status.HTTP_204_NO_CONTENT)
+def create_session(
+    credentials: UsuarioLoginSchema,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    require_session_header(request)
+    token = login(credentials, db)
+    response = Response(status_code=204, headers={"Cache-Control": "no-store"})
+    response.set_cookie(
+        SESSION_COOKIE,
+        token.access_token,
+        max_age=settings.jwt_access_token_expire_minutes * 60,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+    )
+    return response
+
+
+@auth_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(request: Request) -> Response:
+    require_session_header(request)
+    response = Response(status_code=204, headers={"Cache-Control": "no-store"})
+    response.delete_cookie(
+        SESSION_COOKIE,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+    )
+    return response
+
+
 @auth_router.get("/me", response_model=UsuarioRespostaSchema)
 def get_me(
     current_user: UsuarioModel = Depends(get_current_user),
@@ -72,33 +114,32 @@ def update_me(
     return update_use_case.execute(current_user, user_data)
 
 
+@auth_router.get(
+    "/users",
+    response_model=list[UsuarioRespostaSchema],
+    dependencies=[Depends(require_role(PapelUsuario.ADMIN))],
+)
+def list_users(db: Session = Depends(get_db)) -> list[UsuarioModel]:
+    return RepositorioUsuario(db).list_all()
+
+
+@auth_router.put("/users/{id_usuario}", response_model=UsuarioRespostaSchema)
+def update_user(
+    id_usuario: int,
+    changes: UsuarioAdministracaoSchema,
+    db: Session = Depends(get_db),
+    current_user: UsuarioModel = Depends(require_role(PapelUsuario.ADMIN)),
+) -> UsuarioModel:
+    use_case = GerenciarUsuariosUseCase(RepositorioUsuario(db))
+    return use_case.update(current_user.id_usuario, id_usuario, changes)
+
+
 @auth_router.delete("/users/{id_usuario}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     id_usuario: int,
     db: Session = Depends(get_db),
     current_user: UsuarioModel = Depends(require_role(PapelUsuario.ADMIN)),
 ) -> Response:
-    repository = RepositorioUsuario(db)
-
-    if current_user.id_usuario == id_usuario:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Você não pode excluir a própria conta enquanto está logado",
-        )
-
-    user = repository.get_by_id(id_usuario)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuário não encontrado",
-        )
-
-    if user.ativo and user.papel == PapelUsuario.ADMIN:
-        if repository.count_active_admins() <= 1:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Não é possível excluir o último administrador ativo",
-            )
-
-    repository.delete(user)
+    use_case = GerenciarUsuariosUseCase(RepositorioUsuario(db))
+    use_case.delete(current_user.id_usuario, id_usuario)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

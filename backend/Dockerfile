@@ -16,6 +16,8 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 
 COPY backend ./backend
 COPY pyproject.toml ./pyproject.toml
+COPY alembic.ini ./alembic.ini
+COPY database ./database
 
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/storage/datasets \

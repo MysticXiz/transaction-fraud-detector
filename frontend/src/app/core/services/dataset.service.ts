@@ -17,6 +17,10 @@ export class DatasetService {
     return this.http.get<DatasetDetalhe>(`${this.baseUrl}/${idDataset}`);
   }
 
+  obterLimiteUpload() {
+    return this.http.get<{ limite_bytes: number }>(`${this.baseUrl}/limite-upload`);
+  }
+
   iniciarImportacao(payload: Omit<DatasetImportPayload, 'arquivo'> & { nome_arquivo: string }) {
     return this.http.post<DatasetImportJob>(`${this.baseUrl}/importacoes`, payload);
   }

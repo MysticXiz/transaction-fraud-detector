@@ -1,5 +1,7 @@
 import { ModoExecucao, StatusExecucao } from './enums';
 
+export type EtapaExecucao = 'LEITURA' | 'PRE_PROCESSAMENTO' | 'TREINAMENTO' | 'INFERENCIA' | 'GRAVACAO';
+
 export interface ExecucaoAnaliseCreate {
   id_dataset: number;
   id_modelo: number;
@@ -21,6 +23,7 @@ export interface ExecucaoAnalise {
   tipo_dispositivo?: 'CPU' | 'GPU' | null;
   tamanho_chunk?: number;
   status: StatusExecucao;
+  etapa_atual?: EtapaExecucao | null;
   progresso_percentual?: number;
   iniciada_em?: string;
   finalizada_em?: string;

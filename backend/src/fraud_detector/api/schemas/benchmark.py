@@ -52,4 +52,5 @@ class BenchmarkRespostaSchema(BaseModel):
         "CANCELADO",
     ]
     mensagem_erro: str | None = None
+    inferencia_sincronizada: bool = False
     execucoes: list[BenchmarkExecucaoRespostaSchema]

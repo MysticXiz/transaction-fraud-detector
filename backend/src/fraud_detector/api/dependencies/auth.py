@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -7,15 +7,34 @@ from src.fraud_detector.infrastructure.database.database import get_db
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
 from src.fraud_detector.infrastructure.security.jwt import settings
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
+SESSION_COOKIE = "df_session"
+
+
+def require_session_header(request: Request) -> None:
+    # Um formulário enviado por outra origem não consegue incluir este cabeçalho.
+    if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+        raise HTTPException(status_code=403, detail="Cabeçalho de sessão obrigatório")
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: Session = Depends(get_db),
 ):
-    """Valida o bearer token e retorna apenas usuários existentes e ativos."""
-    token = credentials.credentials
+    """Valida a sessão do navegador ou o token Bearer de um cliente da API."""
+    if credentials is not None:
+        token = credentials.credentials
+    else:
+        token = request.cookies.get(SESSION_COOKIE)
+        if token and request.method not in ("GET", "HEAD", "OPTIONS"):
+            require_session_header(request)
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Autenticação obrigatória",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     try:
         payload = jwt.decode(

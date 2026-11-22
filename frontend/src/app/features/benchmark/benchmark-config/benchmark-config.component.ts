@@ -47,73 +47,54 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
           <label class="opcao-modo">
             <input type="radio" name="tipo-benchmark" value="COMPARATIVO" [checked]="tipoBenchmarkSelecionado() === 'COMPARATIVO'" (change)="selecionarTipoBenchmark('COMPARATIVO')" />
             <span>Comparativo</span>
-            <small>Executa o sequencial como baseline e depois o paralelo.</small>
+            <small>Compara o OpenCL com a referência sequencial.</small>
           </label>
           <label class="opcao-modo">
             <input type="radio" name="tipo-benchmark" value="PARALELO_APENAS" [checked]="tipoBenchmarkSelecionado() === 'PARALELO_APENAS'" (change)="selecionarTipoBenchmark('PARALELO_APENAS')" />
             <span>Somente paralelo</span>
-            <small>Executa apenas a configuração OpenCL selecionada.</small>
+            <small>Mede só a configuração OpenCL selecionada.</small>
           </label>
         </div>
 
-          <div class="caixa-workers">
+          <div class="painel-opencl">
             @if (capacidades(); as info) {
-              <label class="seletor-dispositivo">
-                <span>Dispositivo de processamento</span>
-                <select
-                  [value]="tipoDispositivoSelecionado()"
-                  (change)="selecionarDispositivo($event)"
-                  aria-label="Dispositivo de processamento"
-                >
+              <label class="controle-opencl">
+                <span class="df-label">Dispositivo de processamento</span>
+                <select class="df-input" [value]="tipoDispositivoSelecionado()" [disabled]="calibrando()"
+                  (change)="selecionarDispositivo($event)">
                   @for (dispositivo of info.dispositivos; track dispositivo.tipo) {
                     <option [value]="dispositivo.tipo">
                       {{ dispositivo.tipo === 'CPU' ? 'Processador (CPU)' : 'Placa de vídeo (GPU)' }}
                     </option>
                   }
-                  @if (!tipoDispositivoDisponivel('CPU')) {
-                    <option value="CPU" disabled>Processador (CPU) — OpenCL indisponível</option>
-                  }
-                  @if (!tipoDispositivoDisponivel('GPU')) {
-                    <option value="GPU" disabled>Placa de vídeo (GPU) — OpenCL indisponível</option>
-                  }
                 </select>
               </label>
             }
-            <div class="linha-slider">
-              <span>Tamanho do work-group: {{ workGroupSelecionado() }}</span>
-              @if (dispositivoSelecionado(); as dispositivo) {
-                <span class="nucleos">{{ dispositivo.nome }} · máximo de work-group {{ dispositivo.max_work_group_size }}</span>
-              } @else if (carregandoCapacidades()) {
-                <span class="nucleos">Detectando recursos OpenCL…</span>
-              }
-            </div>
-            <input
-              type="range"
-              min="1"
-              [max]="dispositivoSelecionado()?.max_work_group_size ?? 1"
-              [value]="workGroupSelecionado()"
-              class="slider"
-              [disabled]="!dispositivoSelecionado()"
-              aria-label="Tamanho do work-group OpenCL"
-              (input)="atualizarWorkGroup($event)"
-            />
             @if (dispositivoSelecionado(); as dispositivo) {
-              <div>
-                <button type="button" class="df-btn df-btn-secundario" (click)="usarRecomendado()">Usar recomendado</button>
+              <div class="controle-opencl">
+                <p class="ajuda-opencl">{{ dispositivo.nome }}</p>
+                <div class="cabecalho-slider">
+                  <label class="df-label" for="benchmark-work-group">Tamanho do work-group</label>
+                  <output class="valor-slider" for="benchmark-work-group">{{ workGroupSelecionado() }}</output>
+                </div>
+                <input id="benchmark-work-group" class="slider-opencl" type="range" min="1"
+                  [max]="dispositivo.max_work_group_size" [value]="workGroupSelecionado()" [disabled]="calibrando()" (input)="atualizarWorkGroup($event)" />
+                <p class="ajuda-opencl">Recomendado {{ dispositivo.work_group_recomendado ?? dispositivo.max_work_group_size }} · Máximo {{ dispositivo.max_work_group_size }}</p>
+              </div>
+              <div class="acoes-opencl">
+                <button type="button" class="df-btn df-btn-secundario" (click)="usarRecomendado()" [disabled]="calibrando()">Usar recomendado</button>
                 <button type="button" class="df-btn df-btn-secundario" (click)="calibrarAutomaticamente()" [disabled]="calibrando()">
                   {{ calibrando() ? 'Calibrando…' : 'Calibrar automaticamente' }}
                 </button>
-                <small class="ajuda-workers">
-                  Recomendado: work-group {{ dispositivo.work_group_recomendado ?? dispositivo.max_work_group_size }},
-                  chunk {{ dispositivo.chunk_recomendado ?? 'automático' }}
-                </small>
               </div>
+              @if (resultadoCalibracao(); as resultado) {
+                <p class="ajuda-opencl" role="status">Calibração aplicada · Work-group {{ resultado.work_group_size_recomendado }}</p>
+              }
+            } @else {
+              <p class="ajuda-opencl" role="status">
+                {{ carregandoCapacidades() ? 'Detectando recursos OpenCL…' : 'Nenhum dispositivo OpenCL disponível.' }}
+              </p>
             }
-            <small class="ajuda-workers">
-              {{ tipoBenchmarkSelecionado() === 'COMPARATIVO'
-                ? 'O benchmark executará primeiro o baseline sequencial e depois a configuração paralela selecionada.'
-                : 'O benchmark executará somente a configuração paralela selecionada, sem baseline sequencial.' }}
-            </small>
           </div>
 
         @if (erro()) {
@@ -124,7 +105,7 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
         }
 
         <div class="acoes">
-          <button class="df-btn df-btn-roxo" (click)="executarBateria()" [disabled]="carregando() || (modoSelecionado() === 'PARALELO' && !capacidades())">
+          <button class="df-btn df-btn-roxo" (click)="executarBateria()" [disabled]="carregando() || calibrando() || !dispositivoSelecionado()">
             @if (carregando()) {
               <span class="df-spinner" aria-hidden="true"></span> Executando bateria…
             } @else {
@@ -135,17 +116,18 @@ import { StyledSelectComponent, StyledSelectOption } from '../../../shared/compo
       </div>
     </div>
   `,
+  styleUrl: '../../../shared/styles/opencl-config.css',
   styles: [
     `
       .cartao { width: 100%; }
       .separador { border: none; border-top: 1px solid var(--cor-borda); margin: 24px 0; }
       .estado-dataset { padding: 10px 12px; border: 1px solid var(--cor-borda); border-radius: 8px; color: var(--cor-texto-suave); font-size: 13px; }
-      .opcoes-modo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .opcao-modo { display: grid; grid-template-columns: 18px 1fr; align-items: start; gap: 4px 9px; padding: 13px; border: 1px solid var(--cor-borda); border-radius: 8px; background: var(--cor-superficie); color: var(--cor-texto); cursor: pointer; }
+      .opcoes-modo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .opcao-modo { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 4px 9px; padding: 13px; border: 1px solid var(--cor-borda); border-radius: 8px; background: var(--cor-superficie); color: var(--cor-texto); cursor: pointer; }
       .opcao-modo:has(input:checked) { border-color: var(--cor-primaria); background: var(--cor-superficie-suave); }
       .opcao-modo input { grid-row: span 2; margin: 2px 0 0; accent-color: var(--cor-primaria); }
-      .opcao-modo span { font-size: 13px; font-weight: 600; }
-      .opcao-modo small { color: var(--cor-texto-suave); font-size: 11px; line-height: 1.45; }
+      .opcao-modo span { font-size: 14px; font-weight: 600; }
+      .opcao-modo small { color: var(--cor-texto-suave); font-size: 13px; line-height: 1.5; }
       .caixa-workers { background: var(--cor-superficie-suave); color: var(--cor-texto); border: 1px solid var(--cor-borda); border-radius: 8px; padding: 14px 16px; }
       .caixa-workers { margin-top: 16px; }
       .seletor-dispositivo { display: grid; gap: 7px; margin-bottom: 14px; color: var(--cor-texto); font-size: 13px; font-weight: 600; }
@@ -224,6 +206,7 @@ export class BenchmarkConfigComponent implements OnInit {
   usarRecomendado(): void {
     const device = this.dispositivoSelecionado();
     if (!device) return;
+    this.resultadoCalibracao.set(null);
     this.workGroupSelecionado.set(Math.min(
       device.work_group_recomendado ?? 1,
       device.max_work_group_size
@@ -249,10 +232,6 @@ export class BenchmarkConfigComponent implements OnInit {
     });
   }
 
-  selecionarModo(modo: 'SEQUENCIAL' | 'PARALELO'): void {
-    this.modoSelecionado.set(modo);
-  }
-
   selecionarTipoBenchmark(tipo: 'COMPARATIVO' | 'PARALELO_APENAS'): void {
     this.tipoBenchmarkSelecionado.set(tipo);
     this.modoSelecionado.set('PARALELO');
@@ -261,16 +240,13 @@ export class BenchmarkConfigComponent implements OnInit {
   atualizarWorkGroup(event: Event): void {
     const workGroupSize = Number((event.target as HTMLInputElement).value);
     this.workGroupSelecionado.set(workGroupSize);
+    this.resultadoCalibracao.set(null);
   }
 
   dispositivoSelecionado(): OpenCLDevice | undefined {
     return this.capacidades()?.dispositivos.find(
       (device) => device.tipo === this.tipoDispositivoSelecionado()
     );
-  }
-
-  tipoDispositivoDisponivel(type: 'CPU' | 'GPU'): boolean {
-    return this.capacidades()?.dispositivos.some((device) => device.tipo === type) ?? false;
   }
 
   selecionarDispositivo(event: Event): void {

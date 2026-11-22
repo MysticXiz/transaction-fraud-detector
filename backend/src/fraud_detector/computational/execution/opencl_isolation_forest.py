@@ -9,6 +9,7 @@ import os
 
 import numpy as np
 import pyopencl as cl
+from joblib import parallel_backend
 from numpy.typing import NDArray
 from sklearn.ensemble import IsolationForest
 
@@ -65,6 +66,7 @@ class OpenCLPendingResult:
     chunk_id: int
     _sample_buffer: cl.Buffer
     _scores_buffer: cl.Buffer
+    _input_copy_event: cl.Event
     _kernel_event: cl.Event
     _copy_event: cl.Event
 
@@ -147,14 +149,16 @@ class OpenCLIsolationForestExecutor:
         contamination: float | Literal["auto"] = 0.0017,
         random_state: int = 42,
         device_type: OpenCLDeviceType | None = None,
+        training_jobs: int = 1,
     ):
         self._model = IsolationForest(
             n_estimators=n_estimators,
             max_samples="auto",
             contamination=contamination,
             random_state=random_state,
-            n_jobs=1,
+            n_jobs=training_jobs,
         )
+        self._training_jobs = training_jobs
         self._forest: _ForestArrays | None = None
         self._forest_buffers: _ForestDeviceBuffers | None = None
         self._context: cl.Context | None = None
@@ -294,7 +298,8 @@ class OpenCLIsolationForestExecutor:
 
     def fit(self, features: NDArray[np.number]) -> OpenCLIsolationForestExecutor:
         matrix = _validate_matrix(features, minimum_rows=2)
-        self._model.fit(matrix)
+        with parallel_backend("threading", n_jobs=self._training_jobs):
+            self._model.fit(matrix)
         self._forest = _pack_forest(self._model)
         self._forest_buffers = None
         return self
@@ -399,6 +404,7 @@ class OpenCLIsolationForestExecutor:
                 is_blocking=False,
                 wait_for=[kernel_event],
             )
+            queue.flush()
         except cl.Error as error:
             raise OpenCLExecutionError(
                 f"Falha ao executar a pontuação Isolation Forest em OpenCL: {error}"
@@ -408,31 +414,20 @@ class OpenCLIsolationForestExecutor:
             chunk_id=chunk_id,
             _sample_buffer=sample_buffer,
             _scores_buffer=scores_buffer,
+            # O NannyEvent conserva a matriz de entrada até a conclusão da cópia.
+            _input_copy_event=copy_samples_event,
             _kernel_event=kernel_event,
             _copy_event=copy_event,
         )
 
     def collect_opencl(self, pending: OpenCLPendingResult) -> NDArray[np.float32]:
-        if pending._copy_event is None or pending._kernel_event is None:
-            return pending.scores
         try:
+            # A cópia de saída depende do kernel, que depende da cópia de entrada.
             pending._copy_event.wait()
-            pending._kernel_event.wait()
-            if (
-                pending._kernel_event.profile.end > 0
-                and pending._kernel_event.profile.start > 0
-            ):
-                self.last_kernel_seconds = (
-                    pending._kernel_event.profile.end
-                    - pending._kernel_event.profile.start
-                ) / 1_000_000_000.0
-            if (
-                pending._copy_event.profile.end > 0
-                and pending._copy_event.profile.start > 0
-            ):
-                self.last_transfer_seconds = (
-                    pending._copy_event.profile.end - pending._copy_event.profile.start
-                ) / 1_000_000_000.0
+            self.last_kernel_seconds = _event_seconds(pending._kernel_event)
+            self.last_transfer_seconds = _event_seconds(
+                pending._input_copy_event
+            ) + _event_seconds(pending._copy_event)
         except cl.Error as error:
             raise OpenCLExecutionError(
                 f"Falha ao aguardar a pontuação Isolation Forest em OpenCL: {error}"
@@ -527,6 +522,12 @@ class OpenCLIsolationForestExecutor:
         self._context = context
         self._queue = queue
         self._kernel = kernel
+        logger.info(
+            "OpenCL: %s (%s), %s unidades de computação",
+            device.name,
+            device.platform.name,
+            device.max_compute_units,
+        )
         return context, queue, kernel, device
 
     def _get_forest_buffers(
@@ -590,6 +591,11 @@ def _align_work_group(value: int, multiple: int, maximum: int) -> int:
         return min(max(value, 1), maximum)
     aligned = max(multiple, ((value + multiple - 1) // multiple) * multiple)
     return min(aligned, maximum)
+
+
+def _event_seconds(event: cl.Event) -> float:
+    profile = event.profile
+    return (profile.end - profile.start) / 1_000_000_000
 
 
 def available_cpu_capacity() -> int:

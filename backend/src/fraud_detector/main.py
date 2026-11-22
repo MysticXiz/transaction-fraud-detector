@@ -1,5 +1,7 @@
 import logging
+from asyncio import to_thread
 from contextlib import asynccontextmanager
+from threading import Event, Thread
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,14 +10,17 @@ from src.fraud_detector.infrastructure import models  # noqa: F401
 from src.fraud_detector.config.settings import settings
 from src.fraud_detector.infrastructure.database.database import (
     SessionLocal,
+    engine,
     test_connection,
 )
 from src.fraud_detector.infrastructure.seed_admin import seed_bootstrap_admin
+from src.fraud_detector.worker import process_queue
 from src.fraud_detector.api.routes.auth import auth_router
 from src.fraud_detector.api.routes.datasets import datasets_router
 from src.fraud_detector.api.routes.analyses import analyses_router, models_router
 from src.fraud_detector.api.routes.benchmarks import benchmarks_router
 from src.fraud_detector.api.routes.transactions import transactions_router
+from src.fraud_detector.api.routes.server_settings import server_settings_router
 
 logging.getLogger("fraud_detector").setLevel(logging.INFO)
 if not logging.getLogger("fraud_detector").handlers:
@@ -29,12 +34,21 @@ if not logging.getLogger("fraud_detector").handlers:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         seed_bootstrap_admin(db)
+
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+
+    stop = Event()
+    processor = Thread(target=process_queue, args=(stop,), daemon=True)
+    processor.start()
+    try:
         yield
     finally:
-        db.close()
+        stop.set()
+        await to_thread(processor.join, 5)
 
 
 # A aplicação concentra apenas a composição da API; regras de negócio ficam nas camadas abaixo.
@@ -68,6 +82,7 @@ routes = [
     analyses_router,
     benchmarks_router,
     models_router,
+    server_settings_router,
 ]
 
 for route in routes:

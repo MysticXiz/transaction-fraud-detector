@@ -4,9 +4,11 @@ import logging
 import threading
 import queue
 import struct
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from functools import partial
 from time import perf_counter
 from typing import Any, Literal
 
@@ -27,6 +29,7 @@ from src.fraud_detector.computational.execution.opencl_isolation_forest import (
 from src.fraud_detector.computational.preprocessing.preprocessor import Preprocessor
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
+from src.fraud_detector.domain.enums.execution_stage import EtapaExecucao
 from src.fraud_detector.domain.enums.execution_status import StatusExecucao
 from src.fraud_detector.infrastructure.database.database import SessionLocal
 from src.fraud_detector.infrastructure.models.dataset import DatasetModel
@@ -41,8 +44,12 @@ from src.fraud_detector.infrastructure.models.transaction import TransacaoModel
 
 logger = logging.getLogger("fraud_detector.analysis")
 DEFAULT_CHUNK_SIZE = 50_000
-_ANALYSIS_LOCK = threading.Lock()
 _WRITER_STOP = object()
+_execution_stages: dict[int, EtapaExecucao] = {}
+
+
+def get_execution_stage(execution_id: int) -> EtapaExecucao | None:
+    return _execution_stages.get(execution_id)
 
 
 def _result_writer_count() -> int:
@@ -214,6 +221,7 @@ def _result_writer(
 class _ResourceSampler:
     def __init__(self) -> None:
         self._process = psutil.Process()
+        self.cpu_capacity = available_cpu_capacity()
         self._stop = threading.Event()
         self._peak_memory_bytes = self._process.memory_info().rss
         self._started_at = 0.0
@@ -223,8 +231,7 @@ class _ResourceSampler:
 
     def __enter__(self) -> _ResourceSampler:
         self._started_at = perf_counter()
-        cpu_times = self._process.cpu_times()
-        self._started_cpu_seconds = cpu_times.user + cpu_times.system
+        self._started_cpu_seconds = self.cpu_seconds()
         self._thread.start()
         return self
 
@@ -232,17 +239,20 @@ class _ResourceSampler:
         self._stop.set()
         self._thread.join()
         self._record_sample()
-        elapsed = perf_counter() - self._started_at
+        self._average_cpu_percent = self.cpu_percent_since(
+            self._started_at, self._started_cpu_seconds
+        )
+
+    def cpu_seconds(self) -> float:
         cpu_times = self._process.cpu_times()
-        cpu_seconds = cpu_times.user + cpu_times.system - self._started_cpu_seconds
-        if elapsed > 0:
-            self._average_cpu_percent = min(
-                max(cpu_seconds, 0.0)
-                / elapsed
-                / max(available_cpu_capacity(), 1)
-                * 100,
-                100.0,
-            )
+        return cpu_times.user + cpu_times.system
+
+    def cpu_percent_since(self, started_at: float, started_cpu_seconds: float) -> float:
+        elapsed = perf_counter() - started_at
+        if elapsed <= 0:
+            return 0.0
+        cpu_seconds = self.cpu_seconds() - started_cpu_seconds
+        return min(max(cpu_seconds, 0.0) / elapsed / self.cpu_capacity * 100.0, 100.0)
 
     def _sample(self) -> None:
         while not self._stop.wait(0.1):
@@ -273,6 +283,7 @@ def create_execution(
     device_type: OpenCLDeviceType | None,
     chunk_size: int | None,
     threshold: Decimal | None,
+    commit: bool = True,
 ) -> ExecucaoAnaliseModel:
     dataset = (
         db.query(DatasetModel)
@@ -324,8 +335,11 @@ def create_execution(
         status=StatusExecucao.PENDENTE,
     )
     db.add(execution)
-    db.commit()
-    db.refresh(execution)
+    if commit:
+        db.commit()
+        db.refresh(execution)
+    else:
+        db.flush()
     return execution
 
 
@@ -346,24 +360,17 @@ def run_execution(
     execution_id: int,
     *,
     opencl_device_type: OpenCLDeviceType | None = None,
-) -> None:
-    with _ANALYSIS_LOCK:
-        _run_execution(db, execution_id, opencl_device_type=opencl_device_type)
-
-
-def _run_execution(
-    db: Session,
-    execution_id: int,
-    *,
-    opencl_device_type: OpenCLDeviceType | None = None,
+    for_benchmark: bool = False,
 ) -> None:
     execution = (
         db.query(ExecucaoAnaliseModel)
         .filter_by(id_execucao=execution_id)
         .populate_existing()
+        .with_for_update()
         .first()
     )
     if execution is None or execution.status != StatusExecucao.PENDENTE:
+        db.rollback()
         return
 
     execution.status = StatusExecucao.EM_ANDAMENTO
@@ -383,6 +390,7 @@ def _run_execution(
 
     try:
         with sampler:
+            _execution_stages[execution_id] = EtapaExecucao.LEITURA
             read_started = perf_counter()
             statement = (
                 select(
@@ -394,27 +402,47 @@ def _run_execution(
                 .where(TransacaoModel.id_dataset == execution.id_dataset)
                 .order_by(TransacaoModel.indice_origem)
             )
-            rows = list(
-                db.execute(
-                    statement.execution_options(stream_results=True, yield_per=5000)
-                )
-            )
-            read_seconds = perf_counter() - read_started
-            if len(rows) < 2:
+            frame_parts = []
+            transaction_id_parts = []
+            frame_build_seconds = 0.0
+            # Chaves JSON são strings. Rótulos inteiros evitam colisões nos lotes.
+            time_column, amount_column = 0, 1
+            with db.execute(statement.execution_options(yield_per=5000)) as result:
+                for rows in result.partitions(5000):
+                    frame_started = perf_counter()
+                    transaction_id_parts.append(
+                        np.fromiter(
+                            (row.id_transacao for row in rows),
+                            dtype=np.int64,
+                            count=len(rows),
+                        )
+                    )
+                    frame_parts.append(
+                        _transactions_frame(
+                            rows, measure_columns=(time_column, amount_column)
+                        )
+                    )
+                    frame_build_seconds += perf_counter() - frame_started
+                    del rows
+            db.commit()
+            read_seconds = perf_counter() - read_started - frame_build_seconds
+            if sum(len(part) for part in transaction_id_parts) < 2:
                 raise ValueError(
                     "A detecção Isolation Forest exige ao menos duas transações"
                 )
-            transaction_ids = np.fromiter(
-                (row.id_transacao for row in rows),
-                dtype=np.int64,
-                count=len(rows),
-            )
-
-            frame = _transactions_frame(rows)
+            _execution_stages[execution_id] = EtapaExecucao.PRE_PROCESSAMENTO
+            transaction_ids = np.concatenate(transaction_id_parts)
+            del transaction_id_parts
+            sample_count = len(transaction_ids)
             prep_started = perf_counter()
+            frame = pd.concat(frame_parts, ignore_index=True, sort=False)
+            del frame_parts
+            frame["Time"] = frame.pop(time_column)
+            frame["Amount"] = frame.pop(amount_column)
             preprocessor = Preprocessor()
             features = preprocessor.fit_transform(frame)
-            preprocessing_seconds = perf_counter() - prep_started
+            del frame
+            preprocessing_seconds = perf_counter() - prep_started + frame_build_seconds
 
             model = (
                 db.query(ModeloDeteccaoModel)
@@ -422,12 +450,26 @@ def _run_execution(
                 .first()
             )
             model = _validate_supported_model(model)
+            parallel = execution.modo_execucao == ModoExecucao.PARALELO
+            training_jobs = sampler.cpu_capacity if parallel else 1
             executor = _create_executor(
                 model.hiperparametros or {},
                 opencl_device_type=(opencl_device_type or execution.tipo_dispositivo),
+                training_jobs=training_jobs,
             )
 
+            _execution_stages[execution_id] = EtapaExecucao.TREINAMENTO
+            fit_started = perf_counter()
+            fit_cpu_started = sampler.cpu_seconds()
             executor.fit(features)
+            logger.info(
+                "Análise %s: treinamento em %.3fs, até %s de %s threads, %.1f%% de CPU",
+                execution_id,
+                perf_counter() - fit_started,
+                training_jobs,
+                sampler.cpu_capacity,
+                sampler.cpu_percent_since(fit_started, fit_cpu_started),
+            )
             threshold = float(execution.limiar_aplicado)
             chunk_size = execution.tamanho_chunk or DEFAULT_CHUNK_SIZE
             work_group_size = (
@@ -435,6 +477,13 @@ def _run_execution(
                 if execution.modo_execucao == ModoExecucao.PARALELO
                 else None
             )
+            score_chunk: Callable[[NDArray[np.number]], NDArray[np.floating]] = (
+                executor.score_sequential
+            )
+            if for_benchmark and execution.modo_execucao == ModoExecucao.PARALELO:
+                score_chunk = partial(
+                    executor.score_opencl, work_group_size=work_group_size
+                )
 
             inference_seconds = 0.0
             writer_count = _result_writer_count()
@@ -449,7 +498,10 @@ def _run_execution(
                 writer_thread.start()
                 writer_threads.append(writer_thread)
             pending_opencl: tuple[Any, int, int, int] | None = None
-            for chunk_id, start in enumerate(range(0, len(rows), chunk_size)):
+            _execution_stages[execution_id] = EtapaExecucao.INFERENCIA
+            scoring_started = perf_counter()
+            scoring_cpu_started = sampler.cpu_seconds()
+            for chunk_id, start in enumerate(range(0, sample_count, chunk_size)):
                 current = (
                     db.query(ExecucaoAnaliseModel)
                     .filter_by(id_execucao=execution_id)
@@ -458,12 +510,15 @@ def _run_execution(
                 )
                 if current is None or current.status == StatusExecucao.CANCELADA:
                     break
-                end = min(start + chunk_size, len(rows))
+                end = min(start + chunk_size, sample_count)
                 chunk_features = features[start:end]
 
-                if execution.modo_execucao == ModoExecucao.SEQUENCIAL:
+                if for_benchmark or execution.modo_execucao == ModoExecucao.SEQUENCIAL:
+                    if for_benchmark and chunk_id == 0:
+                        # Aquece ambos os modos antes da medição, incluindo o runtime OpenCL.
+                        score_chunk(chunk_features)
                     inference_chunk_started = perf_counter()
-                    scores = executor.score_sequential(chunk_features)
+                    scores = score_chunk(chunk_features)
                     inference_seconds += perf_counter() - inference_chunk_started
                     writer_item, suspicious = _create_result_writer_item(
                         execution_id,
@@ -496,6 +551,37 @@ def _run_execution(
                             error,
                         )
                         current_pending = None
+
+                    if pending_opencl is not None:
+                        (
+                            previous_pending,
+                            previous_start,
+                            previous_end,
+                            previous_chunk_id,
+                        ) = pending_opencl
+                        scores = executor.collect_opencl(previous_pending)
+                        inference_seconds += (
+                            executor.last_kernel_seconds
+                            + executor.last_transfer_seconds
+                        )
+                        writer_item, previous_suspicious = _create_result_writer_item(
+                            execution_id,
+                            transaction_ids[previous_start:previous_end],
+                            scores,
+                            threshold,
+                            previous_chunk_id,
+                        )
+                        if writer_errors:
+                            raise RuntimeError(
+                                "Falha ao persistir resultados da análise"
+                            ) from writer_errors[0]
+                        writer_queue.put(writer_item)
+                        total_analyzed += len(writer_item.transaction_ids)
+                        total_suspicious += int(previous_suspicious.sum())
+
+                    if current_pending is None:
+                        # Termina o lote anterior antes de medir o fallback em CPU.
+                        pending_opencl = None
                         inference_chunk_started = perf_counter()
                         scores = executor.score_sequential(chunk_features)
                         inference_seconds += perf_counter() - inference_chunk_started
@@ -513,33 +599,7 @@ def _run_execution(
                         writer_queue.put(writer_item)
                         total_analyzed += len(writer_item.transaction_ids)
                         total_suspicious += int(suspicious.sum())
-
-                    if pending_opencl is not None:
-                        (
-                            previous_pending,
-                            previous_start,
-                            previous_end,
-                            previous_chunk_id,
-                        ) = pending_opencl
-                        inference_chunk_started = perf_counter()
-                        scores = executor.collect_opencl(previous_pending)
-                        inference_seconds += perf_counter() - inference_chunk_started
-                        writer_item, previous_suspicious = _create_result_writer_item(
-                            execution_id,
-                            transaction_ids[previous_start:previous_end],
-                            scores,
-                            threshold,
-                            previous_chunk_id,
-                        )
-                        if writer_errors:
-                            raise RuntimeError(
-                                "Falha ao persistir resultados da análise"
-                            ) from writer_errors[0]
-                        writer_queue.put(writer_item)
-                        total_analyzed += len(writer_item.transaction_ids)
-                        total_suspicious += int(previous_suspicious.sum())
-
-                    if current_pending is not None:
+                    else:
                         pending_opencl = (current_pending, start, end, chunk_id)
 
                 current.total_analisadas = total_analyzed
@@ -560,9 +620,10 @@ def _run_execution(
                     .first()
                 )
                 if current is not None and current.status != StatusExecucao.CANCELADA:
-                    inference_chunk_started = perf_counter()
                     scores = executor.collect_opencl(previous_pending)
-                    inference_seconds += perf_counter() - inference_chunk_started
+                    inference_seconds += (
+                        executor.last_kernel_seconds + executor.last_transfer_seconds
+                    )
                     writer_item, previous_suspicious = _create_result_writer_item(
                         execution_id,
                         transaction_ids[previous_start:previous_end],
@@ -580,6 +641,14 @@ def _run_execution(
                     current.total_analisadas = total_analyzed
                     current.total_suspeitas = total_suspicious
                     db.commit()
+            logger.info(
+                "Análise %s: fase de inferência com %.1f%% de CPU no processo (%s CPUs disponíveis)",
+                execution_id,
+                sampler.cpu_percent_since(scoring_started, scoring_cpu_started),
+                sampler.cpu_capacity,
+            )
+            _execution_stages[execution_id] = EtapaExecucao.GRAVACAO
+            drain_started = perf_counter()
             if writer_queue is not None:
                 for _ in writer_threads:
                     writer_queue.put(_WRITER_STOP)
@@ -589,6 +658,11 @@ def _run_execution(
                 raise RuntimeError(
                     "Falha ao persistir resultados da análise"
                 ) from writer_errors[0]
+            logger.info(
+                "Análise %s: espera pela gravação final em %.3fs",
+                execution_id,
+                perf_counter() - drain_started,
+            )
 
         _finish_execution(
             db,
@@ -618,6 +692,7 @@ def _run_execution(
             db.query(ExecucaoAnaliseModel)
             .filter_by(id_execucao=execution_id)
             .populate_existing()
+            .with_for_update()
             .first()
         )
         if current is not None:
@@ -640,28 +715,26 @@ def _run_execution(
             total_analyzed,
         )
         db.commit()
-
-
-def run_execution_in_background(execution_id: int) -> None:
-    db = SessionLocal()
-    try:
-        run_execution(db, execution_id)
     finally:
-        db.close()
+        _execution_stages.pop(execution_id, None)
 
 
-def _transactions_frame(rows: list[Any]) -> pd.DataFrame:
+def _transactions_frame(
+    rows: list[Any],
+    *,
+    measure_columns: tuple[str | int, str | int] = ("Time", "Amount"),
+) -> pd.DataFrame:
     frame = pd.DataFrame.from_records(
         [dict(row.atributos or {}) for row in rows],
         coerce_float=True,
     )
     row_count = len(rows)
-    frame["Time"] = np.fromiter(
+    frame[measure_columns[0]] = np.fromiter(
         (row.tempo_relativo for row in rows),
         dtype=np.float64,
         count=row_count,
     )
-    frame["Amount"] = np.fromiter(
+    frame[measure_columns[1]] = np.fromiter(
         (row.valor for row in rows),
         dtype=np.float64,
         count=row_count,
@@ -673,6 +746,7 @@ def _create_executor(
     parameters: dict[str, Any],
     *,
     opencl_device_type: OpenCLDeviceType | None = None,
+    training_jobs: int = 1,
 ) -> OpenCLIsolationForestExecutor:
     n_estimators = parameters.get("n_estimators", 200)
     contamination = parameters.get("contamination", 0.0017)
@@ -692,6 +766,7 @@ def _create_executor(
         contamination=contamination_value,
         random_state=random_state,
         device_type=opencl_device_type,
+        training_jobs=training_jobs,
     )
 
 
@@ -711,6 +786,7 @@ def _finish_execution(
         db.query(ExecucaoAnaliseModel)
         .filter_by(id_execucao=execution_id)
         .populate_existing()
+        .with_for_update()
         .first()
     )
     if execution is None:
@@ -765,4 +841,4 @@ def _save_metrics(
     metric.throughput_tps = (
         Decimal(str(total_analyzed / total_seconds)) if total_seconds > 0 else None
     )
-    metric.nucleos_disponiveis = available_cpu_capacity()
+    metric.nucleos_disponiveis = sampler.cpu_capacity

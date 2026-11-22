@@ -114,6 +114,28 @@ def test_opencl_scores_match_sequential_and_preserve_chunk_order():
     opencl_scores = executor.score_opencl(transactions, work_group_size=8)
     np.testing.assert_allclose(opencl_scores, sequential_scores, rtol=2e-5, atol=2e-5)
 
+    first = executor.submit_opencl(transactions[:50], work_group_size=8)
+    second = executor.submit_opencl(transactions[50:], work_group_size=8)
+    first_scores = executor.collect_opencl(first)
+    input_profile = first._input_copy_event.profile
+    output_profile = first._copy_event.profile
+    kernel_profile = first._kernel_event.profile
+    input_ns = input_profile.end - input_profile.start
+    output_ns = output_profile.end - output_profile.start
+    assert executor.last_transfer_seconds == pytest.approx(
+        (input_ns + output_ns) / 1_000_000_000
+    )
+    assert executor.last_kernel_seconds == pytest.approx(
+        (kernel_profile.end - kernel_profile.start) / 1_000_000_000
+    )
+    queued_scores = np.concatenate((first_scores, executor.collect_opencl(second)))
+    np.testing.assert_allclose(
+        queued_scores,
+        sequential_scores,
+        rtol=2e-5,
+        atol=2e-5,
+    )
+
     result = OpenCLIsolationForestExecutor(
         n_estimators=25, contamination=0.05, random_state=42
     ).execute(transactions, threshold=0.5, chunk_size=13, work_group_size=8)

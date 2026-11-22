@@ -7,8 +7,7 @@ import { authInterceptor } from './auth.interceptor';
 
 describe('authInterceptor', () => {
   const auth = {
-    token: () => 'test-access-token',
-    logout: jasmine.createSpy('logout'),
+    clearSession: jasmine.createSpy('clearSession'),
   };
   const router = {
     navigateByUrl: jasmine.createSpy('navigateByUrl'),
@@ -21,18 +20,17 @@ describe('authInterceptor', () => {
         { provide: Router, useValue: router },
       ],
     });
-    auth.logout.calls.reset();
+    auth.clearSession.calls.reset();
     router.navigateByUrl.calls.reset();
   });
 
-  it('envia o token de acesso no header Authorization como bearer', (done) => {
-    const request = new HttpRequest('GET', '/auth/me');
+  it('envia o cabeçalho de sessão nas chamadas da API', (done) => {
+    const request = new HttpRequest('GET', '/api/auth/me');
 
     TestBed.runInInjectionContext(() =>
       authInterceptor(request, (intercepted) => {
-        expect(intercepted.headers.get('Authorization')).toBe(
-          'Bearer test-access-token'
-        );
+        expect(intercepted.headers.get('X-Requested-With')).toBe('XMLHttpRequest');
+        expect(intercepted.headers.has('Authorization')).toBeFalse();
         expect(intercepted.withCredentials).toBeTrue();
         return of(new HttpResponse({ status: 200 }));
       })

@@ -37,13 +37,22 @@ class Preprocessor:
         self._scaled_positions: tuple[int, ...] = ()
 
     def fit(self, data: pd.DataFrame) -> Preprocessor:
+        self._fit_values(data)
+        return self
+
+    def _fit_values(self, data: pd.DataFrame) -> np.ndarray:
         if data.empty:
             raise ValueError("O conjunto de dados não contém transações")
         if not data.columns.is_unique:
             raise ValueError("O conjunto de dados possui nomes de coluna duplicados")
 
-        self.feature_names = self._select_features(data)
-        values = self._numeric_values(data, self.feature_names)
+        candidates = self._feature_candidates(data)
+        values = self._numeric_values(data, candidates).dropna(
+            axis="columns", how="all"
+        )
+        if values.shape[1] == 0:
+            raise ValueError("Nenhuma feature numérica utilizável foi encontrada")
+        self.feature_names = tuple(values.columns)
         self._imputer = SimpleImputer(strategy="median")
         imputed = self._imputer.fit_transform(values)
 
@@ -57,7 +66,7 @@ class Preprocessor:
             self._scaler.fit(imputed[:, self._scaled_positions])
         else:
             self._scaler = None
-        return self
+        return imputed
 
     def transform(self, data: pd.DataFrame) -> np.ndarray:
         if self._imputer is None:
@@ -69,16 +78,18 @@ class Preprocessor:
             )
 
         values = self._numeric_values(data, self.feature_names)
-        prepared = self._imputer.transform(values)
+        return self._scale(self._imputer.transform(values))
+
+    def _scale(self, prepared: np.ndarray) -> np.ndarray:
         if self._scaler is not None:
             positions = list(self._scaled_positions)
             prepared[:, positions] = self._scaler.transform(prepared[:, positions])
         return np.ascontiguousarray(prepared, dtype=np.float64)
 
     def fit_transform(self, data: pd.DataFrame) -> np.ndarray:
-        return self.fit(data).transform(data)
+        return self._scale(self._fit_values(data))
 
-    def _select_features(self, data: pd.DataFrame) -> tuple[str, ...]:
+    def _feature_candidates(self, data: pd.DataFrame) -> tuple[str, ...]:
         if self._requested_features is not None:
             if not self._requested_features:
                 raise ValueError("Selecione ao menos uma feature")
@@ -97,20 +108,8 @@ class Preprocessor:
                     "Rótulos e identificadores não podem ser features: "
                     + ", ".join(excluded)
                 )
-            candidates = self._requested_features
-        else:
-            candidates = tuple(
-                name for name in data.columns if not self._is_excluded(name)
-            )
-
-        usable = tuple(
-            name
-            for name in candidates
-            if self._numeric_values(data, (name,)).notna().any(axis=None)
-        )
-        if not usable:
-            raise ValueError("Nenhuma feature numérica utilizável foi encontrada")
-        return usable
+            return self._requested_features
+        return tuple(name for name in data.columns if not self._is_excluded(name))
 
     @classmethod
     def _is_excluded(cls, name: str) -> bool:

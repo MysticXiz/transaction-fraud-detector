@@ -8,13 +8,11 @@
 venv/
 .env/
 
-# Documentação interna e arquivos de entrega não publicados
-/docs/
+# Pacotes de entrega podem ser gerados a partir dos documentos versionados.
+/docs/*.zip
 
-# Arquivos históricos, migrations não utilizadas e script local
+# Arquivos históricos e script local
 /database/patches/
-/migrations/
-/alembic.ini
 /iniciar.ps1
 
 # Python

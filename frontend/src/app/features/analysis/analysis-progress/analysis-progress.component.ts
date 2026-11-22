@@ -4,10 +4,33 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { interval } from 'rxjs';
 import { AnalysisService } from '../../../core/services/analysis.service';
-import { ExecucaoAnalise } from '../../../core/models/analise.model';
+import { EtapaExecucao } from '../../../core/models/analise.model';
 import { StatusExecucao } from '../../../core/models/enums';
 import { ManagedProcess, ProcessManagerService } from '../../../core/services/process-manager.service';
 import { AuthService } from '../../../core/services/auth.service';
+
+const ETAPAS: Record<EtapaExecucao, { titulo: string; descricao: string }> = {
+  LEITURA: {
+    titulo: 'Lendo transações',
+    descricao: 'Buscando os registros do dataset no banco de dados.',
+  },
+  PRE_PROCESSAMENTO: {
+    titulo: 'Preparando os dados',
+    descricao: 'Tratando valores ausentes e padronizando os campos usados pelo modelo.',
+  },
+  TREINAMENTO: {
+    titulo: 'Treinando o modelo',
+    descricao: 'Ajustando o Isolation Forest com os dados preparados.',
+  },
+  INFERENCIA: {
+    titulo: 'Calculando os scores de anomalia',
+    descricao: 'Avaliando as transações em blocos e identificando as suspeitas.',
+  },
+  GRAVACAO: {
+    titulo: 'Finalizando a gravação',
+    descricao: 'Aguardando o banco de dados salvar os últimos resultados.',
+  },
+};
 
 @Component({
   selector: 'app-analysis-progress',
@@ -24,7 +47,7 @@ import { AuthService } from '../../../core/services/auth.service';
 
       <div class="df-card progress-card">
         <div class="status-heading">
-          <div>
+          <div aria-live="polite" aria-atomic="true">
             <h2>{{ tituloEstado() }}</h2>
             <p class="status-description">{{ descricaoEstado() }}</p>
           </div>
@@ -156,6 +179,7 @@ export class AnalysisProgressComponent implements OnInit {
   progresso = signal(0);
   erro = signal<string | null>(null);
   status = signal<StatusExecucao>(StatusExecucao.PENDENTE);
+  etapa = signal<EtapaExecucao | null>(null);
   ativa = signal(true);
   polling = signal(false);
   cancelando = signal(false);
@@ -199,7 +223,7 @@ export class AnalysisProgressComponent implements OnInit {
       case StatusExecucao.PENDENTE:
         return 'Análise na fila';
       default:
-        return 'Processando análise';
+        return this.etapaAtual()?.titulo ?? 'Processando análise';
     }
   }
 
@@ -208,15 +232,21 @@ export class AnalysisProgressComponent implements OnInit {
       return 'A análise foi registrada e começará assim que o processamento estiver disponível.';
     }
     if (this.status() === StatusExecucao.EM_ANDAMENTO) {
-      return 'Os resultados são salvos em blocos e o progresso é atualizado periodicamente.';
+      return this.etapaAtual()?.descricao ?? 'Aguardando informação sobre a etapa atual.';
     }
     return 'Resumo atualizado a partir do estado persistido da execução.';
+  }
+
+  private etapaAtual() {
+    const etapa = this.etapa();
+    return etapa === null ? null : ETAPAS[etapa];
   }
 
   estimativaConclusao(): string {
     const percent = this.progresso();
     const elapsed = this.tempoDecorrido();
-    if (!this.ativa() || percent >= 100) return 'Concluída';
+    if (!this.ativa()) return this.status() === StatusExecucao.CONCLUIDA ? 'Concluída' : '—';
+    if (percent >= 100 || this.etapa() === 'GRAVACAO') return 'Finalizando…';
     if (percent <= 0 || elapsed <= 0) return 'Calculando…';
     return `~${this.formatarDuracao(Math.ceil((elapsed * (100 - percent)) / percent))}`;
   }
@@ -282,6 +312,7 @@ export class AnalysisProgressComponent implements OnInit {
       : null);
     if (!execution) return;
     this.status.set(execution.status);
+    this.etapa.set(execution.etapa_atual ?? null);
     this.progresso.set(Math.max(0, Math.min(execution.progresso_percentual ?? 0, 100)));
     this.analisadas.set(execution.total_analisadas);
     this.totalRegistros.set(execution.total_registros ?? 0);

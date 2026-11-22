@@ -9,6 +9,18 @@ on:
 jobs:
   quality-and-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fraud
+          POSTGRES_PASSWORD: postgres-ci-password
+          POSTGRES_DB: fraud_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fraud -d fraud_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -19,9 +31,10 @@ jobs:
 
       - name: Instalar dependências
         run: |
+          sudo apt-get update
+          sudo apt-get install -y pocl-opencl-icd postgresql-client
           python -m pip install --upgrade pip
-          pip install ruff black pytest
-          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+          pip install ruff black httpx -r backend/requirements.txt
 
       - name: Verificar formatação com Black
         run: black --check backend/ tests/
@@ -29,9 +42,32 @@ jobs:
       - name: Executar lint com Ruff
         run: ruff check backend/ tests/
 
-      - name: Executar testes com Pytest
+      - name: Inicializar PostgreSQL
+        env:
+          PGPASSWORD: postgres-ci-password
+        run: |
+          psql -h localhost -U fraud -d fraud_ci -v ON_ERROR_STOP=1 -f database/schema.sql
+          psql -h localhost -U fraud -d fraud_ci -v ON_ERROR_STOP=1 -f database/seeds.sql
+
+      - name: Executar testes com PostgreSQL e OpenCL
         env:
           PYTHONPATH: backend
-          JWT_SECRET_KEY: "chave-ficticia-para-testes-ci"
-          DATABASE_URL: "sqlite:///./test.db"
+          JWT_SECRET_KEY: "chave-ficticia-exclusiva-para-testes-ci"
+          DATABASE_URL: "postgresql+psycopg://fraud:postgres-ci-password@localhost:5432/fraud_ci"
+          RUN_POSTGRES_INTEGRATION: "1"
         run: pytest tests/
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build:prod

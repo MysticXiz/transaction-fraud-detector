@@ -82,7 +82,7 @@ def test_executor_uses_supported_model_hyperparameters(
 
     analysis_service._create_executor(parameters)
 
-    assert captured == {**expected, "device_type": None}
+    assert captured == {**expected, "device_type": None, "training_jobs": 1}
 
 
 def test_executor_receives_selected_opencl_device(monkeypatch: pytest.MonkeyPatch):
@@ -94,9 +94,10 @@ def test_executor_receives_selected_opencl_device(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(analysis_service, "OpenCLIsolationForestExecutor", FakeExecutor)
 
-    analysis_service._create_executor({}, opencl_device_type="CPU")
+    analysis_service._create_executor({}, opencl_device_type="CPU", training_jobs=6)
 
     assert captured["device_type"] == "CPU"
+    assert captured["training_jobs"] == 6
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,7 @@
   "include": [
     "backend",
     "tests",
-    "migrations"
+    "database/migrations"
   ],
   "extraPaths": [
     "backend"

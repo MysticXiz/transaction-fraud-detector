@@ -3,7 +3,11 @@ from src.fraud_detector.infrastructure.repositories.user_repository import (
     RepositorioUsuario,
 )
 from src.fraud_detector.infrastructure.security.jwt import create_access_token
-from src.fraud_detector.infrastructure.security.password import verify_password
+from src.fraud_detector.infrastructure.security.password import (
+    LEGACY_ADMIN_EMAIL,
+    LEGACY_ADMIN_PASSWORD,
+    verify_password,
+)
 from src.fraud_detector.api.schemas.user import TokenRespostaSchema, UsuarioLoginSchema
 
 
@@ -19,7 +23,12 @@ class LoginUsuarioUseCase:
 
         # A mesma mensagem para usuário inexistente e senha incorreta evita vazamento de informação.
         user = self.user_repository.get_by_email(email)
-        if not user or not verify_password(senha, user.senha_hash):
+        if (
+            not user
+            or not user.ativo
+            or (email == LEGACY_ADMIN_EMAIL and senha == LEGACY_ADMIN_PASSWORD)
+            or not verify_password(senha, user.senha_hash)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas"
             )

@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
@@ -12,6 +13,13 @@ class RepositorioUsuario:
     def get_by_email(self, email: str) -> UsuarioModel | None:
         return self.db.query(UsuarioModel).filter(UsuarioModel.email == email).first()
 
+    def list_all(self) -> list[UsuarioModel]:
+        return self.db.query(UsuarioModel).order_by(UsuarioModel.id_usuario).all()
+
+    def lock_account_changes(self) -> None:
+        if self.db.connection().dialect.name == "postgresql":
+            self.db.execute(text("LOCK TABLE usuario IN SHARE ROW EXCLUSIVE MODE"))
+
     def create(self, user: UsuarioModel) -> UsuarioModel:
         # refresh recupera campos gerados pelo banco, como id e data de criação.
         self.db.add(user)
@@ -22,20 +30,9 @@ class RepositorioUsuario:
     def get_by_id(self, id_usuario: int) -> UsuarioModel | None:
         return (
             self.db.query(UsuarioModel)
+            .populate_existing()
             .filter(UsuarioModel.id_usuario == id_usuario)
             .first()
-        )
-
-    def count_active_admins(self) -> int:
-        from src.fraud_detector.domain.enums.user_roles import PapelUsuario
-
-        return (
-            self.db.query(UsuarioModel)
-            .filter(
-                UsuarioModel.ativo.is_(True),
-                UsuarioModel.papel == PapelUsuario.ADMIN,
-            )
-            .count()
         )
 
     def delete(self, user: UsuarioModel) -> None:
@@ -43,13 +40,12 @@ class RepositorioUsuario:
         self.db.commit()
 
     def update(self, id_usuario: int, updates: dict) -> UsuarioModel | None:
-        user = (
-            self.db.query(UsuarioModel)
-            .filter(UsuarioModel.id_usuario == id_usuario)
-            .first()
-        )
+        user = self.get_by_id(id_usuario)
         if user is None:
             return None
+        return self.update_user(user, updates)
+
+    def update_user(self, user: UsuarioModel, updates: dict) -> UsuarioModel:
         for field, value in updates.items():
             setattr(user, field, value)
         self.db.commit()

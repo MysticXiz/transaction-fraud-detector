@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     DateTime,
@@ -11,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import ENUM
+from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.fraud_detector.domain.enums.benchmark_role import PapelBenchmark
@@ -33,6 +34,9 @@ class BenchmarkModel(Base):
         String(32), nullable=False, default="PENDENTE", server_default="PENDENTE"
     )
     mensagem_erro: Mapped[str | None] = mapped_column(String(2000))
+    configuracao: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
     criado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
