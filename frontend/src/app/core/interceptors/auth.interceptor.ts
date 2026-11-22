@@ -21,8 +21,12 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   return next(clonado).pipe(
     catchError((err: HttpErrorResponse) => {
       if (err.status === 401 && !req.url.endsWith('/auth/session')) {
+        const sessaoAtiva = auth.estaAutenticado();
         auth.clearSession();
-        void router.navigateByUrl('/login');
+        // The guard owns redirects while restoring a session, before a profile is loaded.
+        if (sessaoAtiva) {
+          void router.navigate(['/login'], { queryParams: { returnUrl: router.url }, replaceUrl: true });
+        }
       }
       return throwError(() => err);
     })

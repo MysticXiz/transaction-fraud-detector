@@ -38,8 +38,14 @@ def _driver_connection(session: Session):
 
 
 class RepositorioDataset:
-    def __init__(self, db: Session):
+    def __init__(
+        self,
+        db: Session,
+        *,
+        stage_import_completion: Callable[[int], None] | None = None,
+    ):
         self.db = db
+        self.stage_import_completion = stage_import_completion
 
     def get_by_hash(self, file_hash: str, owner_id: int) -> DatasetModel | None:
         return (
@@ -109,10 +115,18 @@ class RepositorioDataset:
                 raise DatasetImportCancelledError("A importação foi cancelada")
 
             dataset.total_registros = total_records
-            commit_started = perf_counter()
-            self.db.commit()
-            commit_seconds = perf_counter() - commit_started
-            self.db.refresh(dataset)
+            commit_seconds = 0.0
+            if self.stage_import_completion is not None:
+                # The upload route commits only after the use case returns, so an
+                # uncertain commit cannot trigger the use case's artifact cleanup.
+                self.stage_import_completion(dataset.id_dataset)
+                self.db.flush()
+                self.db.refresh(dataset)
+            else:
+                commit_started = perf_counter()
+                self.db.commit()
+                commit_seconds = perf_counter() - commit_started
+                self.db.refresh(dataset)
             return dataset, IngestionLoadStats(
                 rows_inserted=total_records,
                 parse_seconds=parse_seconds,

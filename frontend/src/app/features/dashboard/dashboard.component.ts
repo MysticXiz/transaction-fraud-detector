@@ -70,9 +70,10 @@ import { AuthService } from '../../core/services/auth.service';
           @if (execucoesRecentes().length) {
             <ul class="lista-execucoes">
               @for (exec of execucoesRecentes(); track exec.id_execucao) {
+                @let ativa = exec.status === Status.PENDENTE || exec.status === Status.EM_ANDAMENTO;
                 <li>
-                  <a [routerLink]="['/analises', exec.id_execucao, 'resultados']">
-                    #{{ exec.id_execucao }} - {{ exec.dataset_nome ?? 'dataset' }}
+                  <a [routerLink]="['/analises', exec.id_execucao, ativa ? 'execucao' : 'resultados']">
+                    #{{ exec.id_execucao }} - {{ exec.dataset_nome ?? 'dataset' }}{{ ativa ? ' · Acompanhar análise' : '' }}
                   </a>
                   <app-status-badge [status]="exec.status" />
                 </li>
@@ -112,6 +113,7 @@ export class DashboardComponent implements OnInit {
   protected auth = inject(AuthService);
   private datasetService = inject(DatasetService);
   private analysisService = inject(AnalysisService);
+  readonly Status = StatusExecucao;
 
   canWrite(): boolean {
     const role = this.auth.usuario()?.papel;
@@ -126,7 +128,8 @@ export class DashboardComponent implements OnInit {
   totalSuspeitas = computed(() => this.execucoes().reduce((soma, e) => soma + (e.total_suspeitas ?? 0), 0));
 
   execucoesRecentes = computed(() => this.execucoes().slice(0, 5));
-  execucoesGrafico = computed(() => this.execucoes().slice(0, 5).reverse());
+  execucoesGrafico = computed(() => this.execucoes()
+    .filter((e) => e.status !== StatusExecucao.PENDENTE).slice(0, 5).reverse());
 
   larguraSvg = computed(() => Math.max(this.execucoesGrafico().length * 76 + 16, 76));
 
@@ -139,7 +142,7 @@ export class DashboardComponent implements OnInit {
         this.totalDatasetsSignal.set(datasets.length);
         this.execucoes.set(
           [...execucoes]
-            .filter((e) => e.status === StatusExecucao.CONCLUIDA || e.status === StatusExecucao.EM_ANDAMENTO)
+            .filter((e) => e.status === StatusExecucao.CONCLUIDA || e.status === StatusExecucao.EM_ANDAMENTO || e.status === StatusExecucao.PENDENTE)
             .sort((a, b) => b.id_execucao - a.id_execucao)
         );
       },

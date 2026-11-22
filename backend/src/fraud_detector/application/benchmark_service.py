@@ -4,6 +4,11 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from src.fraud_detector.application.execution_errors import (
+    BENCHMARK_FAILED,
+    public_execution_error,
+)
+
 from src.fraud_detector.api.schemas.benchmark import BenchmarkConfiguracaoSchema
 from src.fraud_detector.application.analysis_service import (
     create_execution,
@@ -125,7 +130,8 @@ def run_benchmark(db: Session, benchmark_id: int) -> None:
             if execution.status == StatusExecucao.FALHA:
                 benchmark.status = "FALHA"
                 benchmark.mensagem_erro = (
-                    execution.mensagem_erro or "Uma configuração do benchmark falhou."
+                    public_execution_error(execution.mensagem_erro, BENCHMARK_FAILED)
+                    or BENCHMARK_FAILED
                 )
                 db.commit()
                 return
@@ -168,7 +174,7 @@ def run_benchmark(db: Session, benchmark_id: int) -> None:
             else "CONCLUIDO"
         )
         db.commit()
-    except Exception as error:
+    except Exception:
         db.rollback()
         logger.exception("Falha ao executar benchmark %s", benchmark_id)
         benchmark = (
@@ -179,7 +185,7 @@ def run_benchmark(db: Session, benchmark_id: int) -> None:
                 benchmark.status = "CANCELADO"
             else:
                 benchmark.status = "FALHA"
-                benchmark.mensagem_erro = str(error)[:2000]
+                benchmark.mensagem_erro = BENCHMARK_FAILED
             db.commit()
 
 

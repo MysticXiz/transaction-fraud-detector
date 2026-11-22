@@ -3,6 +3,11 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from src.fraud_detector.application.execution_errors import (
+    BENCHMARK_FAILED,
+    public_execution_error,
+)
+
 from src.fraud_detector.api.dependencies.auth import get_current_user
 from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.api.schemas.benchmark import (
@@ -34,6 +39,9 @@ from src.fraud_detector.infrastructure.models.detection_model import (
 )
 from src.fraud_detector.infrastructure.models.execution import ExecucaoAnaliseModel
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
+from src.fraud_detector.infrastructure.repositories.transaction_repository import (
+    owned_dataset_for_update,
+)
 
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
 
@@ -118,11 +126,8 @@ def create_benchmark(
             detail="O benchmark deve conter ao menos uma configuração de execução",
         )
     dataset = (
-        db.query(DatasetModel)
-        .filter_by(
-            id_dataset=payload.id_dataset,
-            id_usuario=current_user.id_usuario,
-        )
+        owned_dataset_for_update(db, current_user.id_usuario)
+        .filter(DatasetModel.id_dataset == payload.id_dataset)
         .first()
     )
     if dataset is None:
@@ -317,7 +322,7 @@ def _benchmark_response(
         descricao=benchmark.descricao,
         criado_em=benchmark.criado_em,
         status=benchmark.status,
-        mensagem_erro=benchmark.mensagem_erro,
+        mensagem_erro=public_execution_error(benchmark.mensagem_erro, BENCHMARK_FAILED),
         inferencia_sincronizada=(benchmark.configuracao or {}).get(
             "inferencia_sincronizada", False
         ),

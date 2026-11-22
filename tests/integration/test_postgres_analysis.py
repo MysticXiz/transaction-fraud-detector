@@ -13,6 +13,7 @@ from src.fraud_detector.application.analysis_service import create_execution
 from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     OpenCLIsolationForestExecutor,
 )
+from src.fraud_detector.config.settings import settings
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
 from src.fraud_detector.domain.enums.execution_status import StatusExecucao
@@ -43,10 +44,11 @@ def wait_for_result(client, path: str) -> dict:
         sleep(0.1)
 
 
-def test_backend_queue_results_and_downloads_on_postgres(monkeypatch):
+def test_backend_queue_results_and_downloads_on_postgres(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
     monkeypatch.setattr(result_exports, "_BATCH_ROWS", 10)
+    monkeypatch.setattr(settings, "dataset_storage_path", tmp_path)
     unique_id = uuid4().hex
     email = f"tester-{unique_id}@example.com"
     password = "Senha de integração"
@@ -114,6 +116,33 @@ def test_backend_queue_results_and_downloads_on_postgres(monkeypatch):
         assert "SameSite=lax" in login.headers["set-cookie"]
         assert client.get("/auth/me").json()["email"] == email
 
+        assert client.get("/health").status_code == 200
+        job = client.post(
+            "/datasets/importacoes",
+            headers=headers,
+            json={
+                "nome": "Importação CI",
+                "origem": "Sintética",
+                "nome_arquivo": "ci.csv",
+            },
+        )
+        assert job.status_code == 201
+        job_path = f"/datasets/importacoes/{job.json()['id_importacao']}"
+        csv_data = bytes([10]).join([b"Time,Amount,V1", b"0,10,1", b"1,20,2", b""])
+        csv_file = {"arquivo": ("ci.csv", csv_data, "text/csv")}
+        imported = client.post(f"{job_path}/arquivo", files=csv_file, headers=headers)
+        assert imported.status_code == 200, imported.text
+        state = client.get(job_path).json()
+        assert state["status"] == "CONCLUIDO"
+        assert state["id_dataset"] == imported.json()["id_dataset"]
+        assert imported.json()["total_registros"] == 2
+        assert (
+            client.post(
+                f"{job_path}/arquivo", files=csv_file, headers=headers
+            ).status_code
+            == 409
+        )
+
         payload = {
             "id_dataset": dataset_id,
             "id_modelo": model_id,
@@ -144,6 +173,14 @@ def test_backend_queue_results_and_downloads_on_postgres(monkeypatch):
         assert len(rows) == 26
         assert len(json_download.text.splitlines()) == len(rows) + 2
         assert rows[-1]["id_transacao"] == page["itens"][0]["id_transacao"]
+        transaction_path = f"/transactions/{rows[-1]['id_transacao']}"
+        assert (
+            client.patch(
+                transaction_path, json={"valor": "1"}, headers=headers
+            ).status_code
+            == 409
+        )
+        assert client.delete(transaction_path, headers=headers).status_code == 409
         empty = client.get(
             f"{base}/exportar", params={"formato": "json", "valor_minimo": 100}
         )

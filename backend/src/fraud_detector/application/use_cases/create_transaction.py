@@ -27,8 +27,6 @@ class CriarTransacaoUseCase:
         try:
             return self.transaction_repository.create(transaction, owner_id)
         except IntegrityError as error:
-            # A sessão precisa ser revertida antes de qualquer operação posterior.
-            self.transaction_repository.db.rollback()
             if "uk_transacao_origem" in str(error.orig):
                 raise ValueError(
                     "Já existe uma transação com este índice de origem neste dataset"

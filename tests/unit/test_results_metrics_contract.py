@@ -1,5 +1,6 @@
 import queue
 import threading
+from contextlib import nullcontext
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -380,14 +381,12 @@ def test_result_writer_uses_binary_copy(monkeypatch: pytest.MonkeyPatch):
         def commit(self):
             pass
 
-        def rollback(self):
-            pass
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(analysis_service, "SessionLocal", FakeSession)
-    writer_queue: queue.Queue[object] = queue.Queue()
+    monkeypatch.setattr(
+        analysis_service, "SessionLocal", lambda: nullcontext(FakeSession())
+    )
+    writer_queue: queue.Queue[analysis_service._ResultWriterItem] = queue.Queue(
+        maxsize=2
+    )
     writer_errors: list[BaseException] = []
     item, suspicious = analysis_service._create_result_writer_item(
         7,
@@ -396,18 +395,22 @@ def test_result_writer_uses_binary_copy(monkeypatch: pytest.MonkeyPatch):
         0.5,
         2,
     )
-    writer_queue.put(item)
-    writer_queue.put(analysis_service._WRITER_STOP)
+    writer_queue.put_nowait(item)
+    writer_queue.put_nowait(item)
+    producer_done = threading.Event()
+    producer_done.set()
 
     analysis_service._result_writer(
         writer_queue,
         writer_errors,
         threading.Lock(),
+        producer_done,
     )
 
     assert not writer_errors
-    assert copy_options == ["int4,int8,numeric,bool,numeric,int4"]
-    assert len(written_buffers) == 1
+    assert writer_queue.empty()
+    assert copy_options == ["int4,int8,numeric,bool,numeric,int4"] * 2
+    assert len(written_buffers) == 2
     assert written_buffers[0].startswith(b"PGCOPY\n\xff\r\n\x00")
     assert suspicious.tolist() == [True, False]
 
@@ -436,17 +439,10 @@ def test_result_writer_records_first_error(monkeypatch: pytest.MonkeyPatch):
         def connection(self):
             return SimpleNamespace(connection=fake_driver_connection)
 
-        def commit(self):
-            pass
-
-        def rollback(self):
-            pass
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(analysis_service, "SessionLocal", FakeSession)
-    writer_queue: queue.Queue[object] = queue.Queue()
+    monkeypatch.setattr(
+        analysis_service, "SessionLocal", lambda: nullcontext(FakeSession())
+    )
+    writer_queue: queue.Queue[analysis_service._ResultWriterItem] = queue.Queue()
     writer_errors: list[BaseException] = []
     item, _ = analysis_service._create_result_writer_item(
         7,
@@ -457,7 +453,74 @@ def test_result_writer_records_first_error(monkeypatch: pytest.MonkeyPatch):
     )
     writer_queue.put(item)
 
-    analysis_service._result_writer(writer_queue, writer_errors, threading.Lock())
+    analysis_service._result_writer(
+        writer_queue, writer_errors, threading.Lock(), threading.Event()
+    )
 
     assert len(writer_errors) == 1
     assert "falha simulada" in str(writer_errors[0])
+
+
+def test_full_result_queue_unblocks_when_only_writer_fails(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    writing = threading.Event()
+    fail_write = threading.Event()
+    put_on_full_queue = threading.Event()
+    producer_done = threading.Event()
+    failure = RuntimeError("falha simulada na gravação")
+    writer_errors: list[BaseException] = []
+    producer_errors: list[Exception] = []
+
+    class ObservedQueue(queue.Queue[analysis_service._ResultWriterItem]):
+        def put(self, item, block=True, timeout=None):
+            if self.full():
+                put_on_full_queue.set()
+            super().put(item, block=block, timeout=timeout)
+
+    def fail_connection():
+        writing.set()
+        assert fail_write.wait(timeout=5)
+        raise failure
+
+    fake_session = SimpleNamespace(connection=fail_connection)
+    monkeypatch.setattr(
+        analysis_service, "SessionLocal", lambda: nullcontext(fake_session)
+    )
+    writer_queue = ObservedQueue(maxsize=1)
+    item, _ = analysis_service._create_result_writer_item(
+        7, np.array([10]), np.array([0.75]), 0.5, 0
+    )
+
+    def produce():
+        try:
+            analysis_service._enqueue_result(writer_queue, item, writer_errors)
+        except Exception as error:
+            producer_errors.append(error)
+
+    writer = threading.Thread(
+        target=analysis_service._result_writer,
+        args=(writer_queue, writer_errors, threading.Lock(), producer_done),
+        daemon=True,
+    )
+    producer = threading.Thread(target=produce, daemon=True)
+    writer_queue.put_nowait(item)
+    writer.start()
+    try:
+        assert writing.wait(timeout=2)
+        writer_queue.put_nowait(item)
+        producer.start()
+        assert put_on_full_queue.wait(timeout=2)
+    finally:
+        fail_write.set()
+        producer_done.set()
+        writer.join(timeout=2)
+        if producer.ident is not None:
+            producer.join(timeout=2)
+
+    assert not writer.is_alive()
+    assert not producer.is_alive(), "producer is stuck waiting for a writer that exited"
+    assert writer_queue.full()
+    assert writer_errors == [failure]
+    assert len(producer_errors) == 1
+    assert producer_errors[0].__cause__ is failure

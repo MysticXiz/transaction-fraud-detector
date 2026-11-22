@@ -71,7 +71,15 @@ import { DatasetService } from '../../../core/services/dataset.service';
 
         </div>
 
-        @if (carregando()) {
+        @if (cancelando()) {
+          <section class="progresso-importacao" aria-labelledby="cancel-progress-title" role="status">
+            <div class="progresso-cabecalho">
+              <h2 id="cancel-progress-title">Cancelando importação</h2>
+              <span class="spinner progresso-spinner" aria-hidden="true"></span>
+            </div>
+            <p class="texto-progresso">{{ processo()?.error || 'Aguardando a confirmação do servidor…' }}</p>
+          </section>
+        } @else if (carregando()) {
           <section class="progresso-importacao" aria-labelledby="progress-title" aria-live="polite">
             <div class="progresso-cabecalho">
               <div>
@@ -185,10 +193,10 @@ import { DatasetService } from '../../../core/services/dataset.service';
         }
 
         <footer class="acoes">
-          <a routerLink="/datasets" class="df-btn df-btn-secundario">Cancelar</a>
+          <a routerLink="/datasets" class="df-btn df-btn-secundario">Voltar para Datasets</a>
           <button class="df-btn df-btn-primary" type="submit" [disabled]="!podeEnviar()">
             @if (carregando()) {
-              <span class="spinner" aria-hidden="true"></span> Importando…
+              <span class="spinner" aria-hidden="true"></span> {{ cancelando() ? 'Cancelando…' : 'Importando…' }}
             } @else {
               Importar dataset
             }
@@ -293,7 +301,8 @@ export class DatasetImportComponent {
       status === 'cancelling'
     );
   });
-  erro = computed(() => this.erroLocal() ?? this.processo()?.error ?? null);
+  cancelando = computed(() => this.processo()?.status === 'cancelling');
+  erro = computed(() => this.erroLocal() ?? (this.cancelando() ? null : (this.processo()?.error ?? null)));
   faseImportacao = computed(() =>
     this.processo()?.status === 'processing' ? 'processando' : 'enviando'
   );
