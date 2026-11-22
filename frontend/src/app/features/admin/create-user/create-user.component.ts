@@ -299,7 +299,7 @@ export class CreateUserComponent {
   }
 
   voltar(): void {
-    this.router.navigateByUrl('/dashboard');
+    this.router.navigateByUrl('/dashboard/servidor');
   }
 
   voltarParaEdicao(): void {

@@ -14,11 +14,6 @@ export interface LoginRequest {
   senha: string;
 }
 
-export interface LoginResponse {
-  access_token: string;
-  token_type: string;
-}
-
 export interface RegisterRequest {
   nome: string;
   email: string;

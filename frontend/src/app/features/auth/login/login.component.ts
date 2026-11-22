@@ -113,7 +113,7 @@ export class LoginComponent {
           this.router.navigateByUrl('/dashboard');
         },
         error: (err) => {
-          this.auth.logout();
+          this.auth.clearSession();
           this.erro.set(err?.status === 401 ? 'E-mail ou senha inválidos.' : 'Não foi possível acessar o sistema.');
         },
       });

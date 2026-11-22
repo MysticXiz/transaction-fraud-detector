@@ -41,5 +41,6 @@ export interface Benchmark {
     | 'FALHA'
     | 'CANCELADO';
   mensagem_erro?: string | null;
+  inferencia_sincronizada?: boolean;
   execucoes: BenchmarkExecucaoItem[];
 }

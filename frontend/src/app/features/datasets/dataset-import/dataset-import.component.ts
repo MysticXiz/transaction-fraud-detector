@@ -3,8 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ProcessManagerService } from '../../../core/services/process-manager.service';
-
-const MAX_FILE_SIZE = 200 * 1024 * 1024;
+import { DatasetService } from '../../../core/services/dataset.service';
 
 @Component({
   selector: 'app-dataset-import',
@@ -61,7 +60,12 @@ const MAX_FILE_SIZE = 200 * 1024 * 1024;
             <label for="dataset-file" class="dropzone-label">
               <span class="upload-icone" aria-hidden="true">↑</span>
               <strong>Solte o CSV aqui ou <span>escolha um arquivo</span></strong>
-              <small>Formato CSV · até 200 MB</small>
+              <small>
+                Formato CSV
+                @if (limiteUpload(); as limite) {
+                  · até {{ formatarTamanho(limite) }}
+                }
+              </small>
             </label>
           }
 
@@ -272,9 +276,11 @@ export class DatasetImportComponent {
   private destroyRef = inject(DestroyRef);
   private fb = inject(FormBuilder);
   private router = inject(Router);
+  private datasetService = inject(DatasetService);
   processManager = inject(ProcessManagerService);
 
   arquivo = signal<File | null>(null);
+  limiteUpload = signal<number | null>(null);
   arrastando = signal(false);
   private erroLocal = signal<string | null>(null);
   processo = this.processManager.datasetImport;
@@ -303,6 +309,19 @@ export class DatasetImportComponent {
   });
 
   constructor() {
+    this.datasetService.obterLimiteUpload()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ limite_bytes }) => {
+          this.limiteUpload.set(limite_bytes);
+          const arquivo = this.arquivo();
+          if (arquivo && arquivo.size > limite_bytes && !this.carregando()) {
+            this.limparArquivo();
+            this.erroLocal.set(`O arquivo excede o limite de ${this.formatarTamanho(limite_bytes)}.`);
+          }
+        },
+        error: () => this.erroLocal.set('Não foi possível consultar o limite de upload.'),
+      });
     this.processManager.datasetImportCompleted
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((dataset) => {
@@ -316,7 +335,9 @@ export class DatasetImportComponent {
 
   podeEnviar(): boolean {
     const file = this.arquivo();
-    return this.form.valid && !!file && file.size <= MAX_FILE_SIZE && file.name.toLowerCase().endsWith('.csv') && !this.carregando();
+    const limite = this.limiteUpload();
+    return this.form.valid && !!file && (limite === null || file.size <= limite)
+      && file.name.toLowerCase().endsWith('.csv') && !this.carregando();
   }
 
   onDragOver(event: DragEvent): void {
@@ -357,8 +378,8 @@ export class DatasetImportComponent {
   }
 
   formatarTamanho(bytes: number): string {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KiB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
   }
 
   formatarDuracao(seconds: number): string {
@@ -392,9 +413,10 @@ export class DatasetImportComponent {
       this.erroLocal.set('Selecione um arquivo com extensão .csv.');
       return;
     }
-    if (file.size > MAX_FILE_SIZE) {
+    const limite = this.limiteUpload();
+    if (limite !== null && file.size > limite) {
       this.arquivo.set(null);
-      this.erroLocal.set('O arquivo excede o limite de 200 MB.');
+      this.erroLocal.set(`O arquivo excede o limite de ${this.formatarTamanho(limite)}.`);
       return;
     }
     this.arquivo.set(file);

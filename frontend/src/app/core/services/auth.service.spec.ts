@@ -22,20 +22,18 @@ describe('AuthService', () => {
     localStorage.clear();
   });
 
-  it('deve persistir o token bearer retornado pelo login', () => {
+  it('deve iniciar a sessão sem persistir um token no armazenamento local', () => {
     const payload = { email: 'admin@sistema.com', senha: '12345678' };
+    localStorage.setItem('df_access_token', 'token-antigo');
 
-    service.login(payload).subscribe((response) => {
-      expect(response.access_token).toBe('token-123');
-    });
+    service.login(payload).subscribe();
 
-    const req = httpMock.expectOne('http://127.0.0.1:8000/auth/login');
+    const req = httpMock.expectOne('/api/auth/session');
     expect(req.request.method).toBe('POST');
-    expect(req.request.withCredentials).toBeFalse();
-    req.flush({ access_token: 'token-123', token_type: 'bearer' });
+    expect(req.request.body).toEqual(payload);
+    req.flush(null);
 
-    expect(localStorage.getItem('df_access_token')).toBe('token-123');
-    expect(service.token()).toBe('token-123');
+    expect(localStorage.getItem('df_access_token')).toBeNull();
   });
 
   it('deve atualizar o perfil via PATCH e sincronizar o usuário', () => {
@@ -53,20 +51,22 @@ describe('AuthService', () => {
       expect(service.usuario()).toEqual(usuario);
     });
 
-    const req = httpMock.expectOne('http://127.0.0.1:8000/auth/me');
+    const req = httpMock.expectOne('/api/auth/me');
     expect(req.request.method).toBe('PATCH');
-    expect(req.request.withCredentials).toBeFalse();
+    expect(req.request.withCredentials).toBeTrue();
     expect(req.request.body).toEqual({ nome: 'Maria Atualizada' });
     req.flush(usuario);
   });
 
-  it('deve limpar a sessão local sem chamar uma rota logout inexistente', () => {
+  it('deve encerrar a sessão na API e limpar o perfil', () => {
     localStorage.setItem('df_access_token', 'token-123');
 
     service.logout();
+    const req = httpMock.expectOne('/api/auth/logout');
+    expect(req.request.method).toBe('POST');
+    req.flush(null);
 
     expect(localStorage.getItem('df_access_token')).toBeNull();
     expect(service.usuario()).toBeNull();
-    httpMock.expectNone('http://127.0.0.1:8000/auth/logout');
   });
 });

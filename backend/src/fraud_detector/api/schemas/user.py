@@ -38,6 +38,11 @@ class UsuarioRespostaSchema(BaseModel):
     criado_em: datetime
 
 
+class UsuarioAdministracaoSchema(BaseModel):
+    papel: PapelUsuario
+    ativo: bool
+
+
 class TokenRespostaSchema(BaseModel):
     access_token: str
     token_type: str

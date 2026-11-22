@@ -21,6 +21,9 @@ import { AuthService } from '../../core/services/auth.service';
           <h1 class="page-title">Visão Geral</h1>
         </div>
         <div class="page-header__actions">
+          @if (auth.usuario()?.papel === 'ADMIN') {
+            <a routerLink="/dashboard/servidor" class="df-btn df-btn-secundario">Configurações do servidor</a>
+          }
           @if (canWrite()) {
             <a routerLink="/datasets/importar" class="df-btn df-btn-secundario">Importar Dataset</a>
             <a routerLink="/analises/nova" class="df-btn df-btn-primary">Nova Análise</a>
@@ -32,11 +35,6 @@ import { AuthService } from '../../core/services/auth.service';
         <app-stat-card rotulo="Datasets" [valor]="totalDatasets()" />
         <app-stat-card rotulo="Análises" [valor]="totalAnalises()" />
         <app-stat-card rotulo="Suspeitas" [valor]="totalSuspeitas()" />
-        @if (canWrite()) {
-        <a routerLink="/benchmark" class="card-speedup">
-          <app-stat-card rotulo="Speedup (ver Benchmark)" [valor]="melhorSpeedupTexto()" />
-        </a>
-        }
       </div>
 
       <div class="grid-inferior">
@@ -93,9 +91,8 @@ import { AuthService } from '../../core/services/auth.service';
   `,
   styles: [
     `
-      .grid-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+      .grid-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
       .grid-inferior { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
-      .card-speedup { display: block; }
       .titulo-secao { font-size: 16px; font-weight: 700; margin-bottom: 18px; }
       .grafico { width: 100%; height: 220px; }
       .lista-execucoes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
@@ -112,7 +109,7 @@ import { AuthService } from '../../core/services/auth.service';
   ],
 })
 export class DashboardComponent implements OnInit {
-  private auth = inject(AuthService);
+  protected auth = inject(AuthService);
   private datasetService = inject(DatasetService);
   private analysisService = inject(AnalysisService);
 
@@ -130,8 +127,6 @@ export class DashboardComponent implements OnInit {
 
   execucoesRecentes = computed(() => this.execucoes().slice(0, 5));
   execucoesGrafico = computed(() => this.execucoes().slice(0, 5).reverse());
-
-  melhorSpeedupTexto = computed(() => '—');
 
   larguraSvg = computed(() => Math.max(this.execucoesGrafico().length * 76 + 16, 76));
 

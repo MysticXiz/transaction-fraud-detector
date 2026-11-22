@@ -1,0 +1,9 @@
+from enum import StrEnum
+
+
+class EtapaExecucao(StrEnum):
+    LEITURA = "LEITURA"
+    PRE_PROCESSAMENTO = "PRE_PROCESSAMENTO"
+    TREINAMENTO = "TREINAMENTO"
+    INFERENCIA = "INFERENCIA"
+    GRAVACAO = "GRAVACAO"

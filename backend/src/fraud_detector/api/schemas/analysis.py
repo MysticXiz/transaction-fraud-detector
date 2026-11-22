@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
+from src.fraud_detector.domain.enums.execution_stage import EtapaExecucao
 from src.fraud_detector.domain.enums.execution_status import StatusExecucao
 
 
@@ -32,6 +33,7 @@ class ExecucaoRespostaSchema(BaseModel):
     tamanho_chunk: int | None = None
     limiar_aplicado: Decimal
     status: StatusExecucao
+    etapa_atual: EtapaExecucao | None = None
     progresso_percentual: int = 0
     iniciada_em: datetime | None = None
     finalizada_em: datetime | None = None

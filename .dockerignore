@@ -9,8 +9,6 @@
 storage/
 docs/
 database/patches/
-migrations/
-alembic.ini
 iniciar.ps1
 .env
 .env.*

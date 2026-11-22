@@ -15,6 +15,12 @@ export interface HistoricoFiltro {
   modo?: ModoExecucao | 'TODOS';
 }
 
+export interface ResultadosFiltro {
+  escoreMinimo?: number;
+  valorMinimo?: number;
+  suspeita?: boolean;
+}
+
 export interface DetalheTransacaoResponse {
   transacao: TransacaoDetalhe;
   resultado_atual: {
@@ -31,7 +37,7 @@ export class AnalysisService {
   private http = inject(HttpClient);
   private baseUrl = `${environment.apiUrl}/analises`;
 
-  /** Dispara a execução (RF04/RF05). API responde 202 Accepted, processamento em BackgroundTask. */
+  /** Enfileira a execução no backend. A API responde 202 Accepted. */
   executar(payload: ExecucaoAnaliseCreate) {
     return this.http.post<ExecucaoAnalise>(this.baseUrl, payload);
   }
@@ -58,14 +64,25 @@ export class AnalysisService {
   /** Resultados paginados e ordenados por escore (RF06/RF07/RF08). */
   obterResultados(
     idExecucao: number,
-    opts: { pagina?: number; tamanhoPagina?: number; escoreMinimo?: number; valorMinimo?: number } = {}
+    opts: ResultadosFiltro & { pagina?: number; tamanhoPagina?: number } = {}
   ) {
-    let params = new HttpParams()
+    const params = this.parametrosResultados(opts)
       .set('pagina', String(opts.pagina ?? 1))
       .set('tamanho_pagina', String(opts.tamanhoPagina ?? 25));
+    return this.http.get<ResultadosPage>(`${this.baseUrl}/${idExecucao}/resultados`, { params });
+  }
+
+  urlExportacao(idExecucao: number, formato: 'csv' | 'json', filtro: ResultadosFiltro) {
+    const params = this.parametrosResultados(filtro).set('formato', formato);
+    return `${this.baseUrl}/${idExecucao}/resultados/exportar?${params}`;
+  }
+
+  private parametrosResultados(opts: ResultadosFiltro): HttpParams {
+    let params = new HttpParams();
     if (opts.escoreMinimo != null) params = params.set('escore_minimo', opts.escoreMinimo);
     if (opts.valorMinimo != null) params = params.set('valor_minimo', opts.valorMinimo);
-    return this.http.get<ResultadosPage>(`${this.baseUrl}/${idExecucao}/resultados`, { params });
+    if (opts.suspeita != null) params = params.set('is_suspeita', opts.suspeita);
+    return params;
   }
 
   /** Detalhe de uma transação + histórico de avaliações (verificação de equivalência sequencial x paralelo). */

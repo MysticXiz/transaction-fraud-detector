@@ -30,10 +30,19 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
           <p>Carregando relatório…</p>
         </div>
       } @else if (benchmark(); as b) {
+        @if (!b.inferencia_sincronizada && b.status === 'CONCLUIDO' && temParalelo(b.execucoes)) {
+          <div class="df-card resumo-sequencial">
+            <h2 class="titulo-secao">Benchmark com medição antiga</h2>
+            <p>O tempo de inferência paralelo desta execução mede a espera pela coleta. Execute um novo benchmark para comparar o cálculo completo.</p>
+          </div>
+        }
+        @if (b.inferencia_sincronizada && b.status === 'CONCLUIDO') {
+          <p class="page-subtitle">A inferência soma o cálculo completo dos lotes após o aquecimento. No OpenCL, o tempo inclui o envio das entradas e a leitura dos scores.</p>
+        }
         @if (b.status === 'CONCLUIDO' && b.execucoes.length > 1 && temBaseline(b.execucoes)) {
         <div class="grid-graficos">
           <div class="df-card">
-            <h2 class="titulo-secao">Speedup observado por configuração</h2>
+            <h2 class="titulo-secao">Speedup da inferência por configuração</h2>
             <svg viewBox="0 0 420 260" class="grafico">
               <line x1="40" y1="220" x2="400" y2="220" stroke="var(--cor-borda)" />
               <line x1="40" y1="20" x2="40" y2="220" stroke="var(--cor-borda)" />
@@ -98,10 +107,10 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
                   <th>Modo</th>
                   <th>Dispositivo</th>
                   <th>Tamanho do work-group</th>
-                  <th>Tempo (s)</th>
+                  <th>Tempo total (s)</th>
                   <th>Inferência (s)</th>
                   @if (temBaseline(b.execucoes)) {
-                    <th>Speedup</th>
+                    <th>Speedup da inferência</th>
                   }
                 </tr>
               </thead>
@@ -114,9 +123,15 @@ import { Benchmark, BenchmarkExecucaoItem } from '../../../core/models/benchmark
                     <td>{{ item.tipo_dispositivo === 'CPU' ? 'Processador' : item.tipo_dispositivo === 'GPU' ? 'GPU' : '—' }}</td>
                     <td>{{ item.work_group_size }}</td>
                     <td>{{ item.tempo_s | number: '1.2-2' : 'pt-BR' }}</td>
-                    <td>{{ item.tempo_inferencia_s | number: '1.2-2' : 'pt-BR' }}</td>
+                    <td>{{ item.tempo_inferencia_s | number: '1.2-6' : 'pt-BR' }}</td>
                     @if (temBaseline(b.execucoes)) {
-                      <td [class.roxo]="item.papel !== 'BASELINE'">{{ item.speedup | number: '1.2-2' : 'pt-BR' }}x</td>
+                      <td [class.roxo]="item.papel !== 'BASELINE'">
+                        @if (item.speedup !== null) {
+                          {{ item.speedup | number: '1.2-4' : 'pt-BR' }}x
+                        } @else {
+                          —
+                        }
+                      </td>
                     }
                   </tr>
                 }
@@ -173,6 +188,10 @@ export class BenchmarkReportComponent implements OnDestroy, OnInit {
 
   temBaseline(executions: BenchmarkExecucaoItem[]): boolean {
     return executions.some((execution) => execution.papel === 'BASELINE');
+  }
+
+  temParalelo(executions: BenchmarkExecucaoItem[]): boolean {
+    return executions.some((execution) => execution.modo_execucao === 'PARALELO');
   }
 
   private idBenchmark = 0;

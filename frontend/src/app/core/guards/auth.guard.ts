@@ -14,7 +14,7 @@ export const authGuard: CanActivateFn = () => {
   return auth.carregarPerfil().pipe(
     map(() => true),
     catchError(() => {
-      auth.logout();
+      auth.clearSession();
       return of(router.createUrlTree(['/login']));
     })
   );

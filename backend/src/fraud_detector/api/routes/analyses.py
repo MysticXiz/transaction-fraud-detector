@@ -1,6 +1,3 @@
-import csv
-import io
-import json
 import logging
 import os
 from hashlib import sha256
@@ -13,13 +10,13 @@ import psutil
 import pyopencl as cl
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     HTTPException,
     Query,
     Response,
     status,
 )
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
@@ -44,11 +41,15 @@ from src.fraud_detector.api.schemas.opencl import (
     OpenCLDeviceSchema,
 )
 from src.fraud_detector.application.analysis_service import (
-    _ANALYSIS_LOCK,
     AnalysisNotFoundError,
     AnalysisRequestError,
     create_execution,
-    run_execution_in_background,
+    get_execution_stage,
+)
+from src.fraud_detector.application.result_exports import (
+    ExportFormat,
+    result_filters,
+    stream_results,
 )
 from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     OpenCLExecutionError,
@@ -58,7 +59,8 @@ from src.fraud_detector.computational.execution.opencl_isolation_forest import (
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
 from src.fraud_detector.domain.enums.execution_status import StatusExecucao
-from src.fraud_detector.infrastructure.database.database import SessionLocal, get_db
+from src.fraud_detector.infrastructure.database.compute_lock import try_compute_lock
+from src.fraud_detector.infrastructure.database.database import get_db
 from src.fraud_detector.infrastructure.models.dataset import DatasetModel
 from src.fraud_detector.infrastructure.models.detection_model import (
     ModeloDeteccaoModel,
@@ -154,12 +156,12 @@ def calibrate_opencl(
     payload: CalibrarOpenCLSchema,
     _: UsuarioModel = Depends(require_write_access),
 ):
-    if not _ANALYSIS_LOCK.acquire(blocking=False):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Existe uma análise em execução; aguarde a conclusão para calibrar o OpenCL",
-        )
-    try:
+    with try_compute_lock() as acquired:
+        if not acquired:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Existe uma análise em execução; aguarde a conclusão para calibrar o OpenCL",
+            )
         try:
             devices = OpenCLIsolationForestExecutor.available_devices()
         except Exception as error:
@@ -259,8 +261,6 @@ def calibrate_opencl(
         )
         _CALIBRATION_CACHE[cache_key] = response
         return response
-    finally:
-        _ANALYSIS_LOCK.release()
 
 
 @analyses_router.post(
@@ -270,7 +270,6 @@ def calibrate_opencl(
 )
 def create_analysis(
     payload: CriarExecucaoSchema,
-    background_tasks: BackgroundTasks,
     current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
 ):
@@ -335,7 +334,6 @@ def create_analysis(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
-    background_tasks.add_task(run_execution_in_background, execution.id_execucao)
     return _execution_response(db, execution)
 
 
@@ -409,7 +407,9 @@ def cancel_analysis(
     current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
 ):
-    execution = _owned_execution(db, execution_id, current_user.id_usuario)
+    execution = _owned_execution(
+        db, execution_id, current_user.id_usuario, for_update=True
+    )
     if execution.status not in (
         StatusExecucao.PENDENTE,
         StatusExecucao.EM_ANDAMENTO,
@@ -526,22 +526,19 @@ def get_analysis_results(
     tamanho_pagina: int = Query(default=25, ge=1, le=200),
     escore_minimo: Decimal | None = Query(default=None, ge=0),
     valor_minimo: Decimal | None = Query(default=None, ge=0),
+    is_suspeita: bool | None = None,
     current_user: UsuarioModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     execution = _owned_execution(db, execution_id, current_user.id_usuario)
     query = (
-        db.query(ResultadoDeteccaoModel)
+        db.query(ResultadoDeteccaoModel, TransacaoModel.valor)
         .join(
             TransacaoModel,
             TransacaoModel.id_transacao == ResultadoDeteccaoModel.id_transacao,
         )
-        .filter(ResultadoDeteccaoModel.id_execucao == execution_id)
+        .filter(*result_filters(execution_id, escore_minimo, valor_minimo, is_suspeita))
     )
-    if escore_minimo is not None:
-        query = query.filter(ResultadoDeteccaoModel.score_anomalia >= escore_minimo)
-    if valor_minimo is not None:
-        query = query.filter(TransacaoModel.valor >= valor_minimo)
     total = query.count()
     rows = (
         query.order_by(
@@ -551,18 +548,6 @@ def get_analysis_results(
         .offset((pagina - 1) * tamanho_pagina)
         .limit(tamanho_pagina)
         .all()
-    )
-    valores = (
-        {
-            row.id_transacao: row.valor
-            for row in db.query(TransacaoModel)
-            .filter(
-                TransacaoModel.id_transacao.in_([item.id_transacao for item in rows])
-            )
-            .all()
-        }
-        if rows
-        else {}
     )
     metric = db.query(MetricaExecucaoModel).filter_by(id_execucao=execution_id).first()
     return ResultadosPaginaSchema(
@@ -581,13 +566,55 @@ def get_analysis_results(
                 is_suspeita=item.is_suspeita,
                 limiar_aplicado=item.limiar_aplicado,
                 chunk_id=item.chunk_id,
-                valor=valores.get(item.id_transacao),
+                valor=valor,
             )
-            for item in rows
+            for item, valor in rows
         ],
         total=total,
         pagina=pagina,
         tamanho_pagina=tamanho_pagina,
+    )
+
+
+@analyses_router.get(
+    "/{execution_id}/resultados/exportar",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "text/csv": {"schema": {"type": "string"}},
+                "application/json": {
+                    "schema": {"type": "array", "items": {"type": "object"}}
+                },
+            }
+        }
+    },
+)
+def export_analysis_results(
+    execution_id: int,
+    formato: ExportFormat = "csv",
+    escore_minimo: Decimal | None = Query(default=None, ge=0),
+    valor_minimo: Decimal | None = Query(default=None, ge=0),
+    is_suspeita: bool | None = None,
+    current_user: UsuarioModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    execution = _owned_execution(db, execution_id, current_user.id_usuario)
+    if execution.status != StatusExecucao.CONCLUIDA:
+        raise HTTPException(
+            status_code=409, detail="Aguarde a conclusão da análise para exportar"
+        )
+    # Libera a conexão da autorização antes de abrir o cursor de exportação.
+    db.rollback()
+    filename = f"analise-{execution_id}.{formato}"
+    return StreamingResponse(
+        stream_results(execution_id, formato, escore_minimo, valor_minimo, is_suspeita),
+        media_type="text/csv" if formato == "csv" else "application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -673,91 +700,6 @@ def get_transaction_result(
     )
 
 
-def _result_export_query(db: Session, execution_id: int):
-    return (
-        db.query(ResultadoDeteccaoModel, TransacaoModel)
-        .join(
-            TransacaoModel,
-            TransacaoModel.id_transacao == ResultadoDeteccaoModel.id_transacao,
-        )
-        .filter(ResultadoDeteccaoModel.id_execucao == execution_id)
-        .order_by(ResultadoDeteccaoModel.score_anomalia.desc())
-        .yield_per(1000)
-    )
-
-
-def _result_export_record(
-    result: ResultadoDeteccaoModel, transaction: TransacaoModel
-) -> dict[str, object]:
-    return {
-        "id_execucao": result.id_execucao,
-        "id_transacao": result.id_transacao,
-        "indice_origem": transaction.indice_origem,
-        "score_anomalia": float(result.score_anomalia),
-        "is_suspeita": result.is_suspeita,
-        "limiar_aplicado": float(result.limiar_aplicado),
-        "chunk_id": result.chunk_id,
-        "valor": float(transaction.valor) if transaction.valor is not None else None,
-        "tempo_relativo": (
-            float(transaction.tempo_relativo)
-            if transaction.tempo_relativo is not None
-            else None
-        ),
-        "rotulo_real": transaction.rotulo_real,
-        "atributos": transaction.atributos,
-    }
-
-
-def _stream_json_results(execution_id: int):
-    db = SessionLocal()
-    try:
-        yield "["
-        for index, (result, transaction) in enumerate(
-            _result_export_query(db, execution_id)
-        ):
-            if index:
-                yield ","
-            yield json.dumps(
-                _result_export_record(result, transaction), ensure_ascii=False
-            )
-        yield "]"
-    finally:
-        db.close()
-
-
-def _stream_csv_results(execution_id: int):
-    fieldnames = [
-        "id_execucao",
-        "id_transacao",
-        "indice_origem",
-        "score_anomalia",
-        "is_suspeita",
-        "limiar_aplicado",
-        "chunk_id",
-        "valor",
-        "tempo_relativo",
-        "rotulo_real",
-        "atributos",
-    ]
-    db = SessionLocal()
-    try:
-        output = io.StringIO(newline="")
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
-        writer.writeheader()
-        yield output.getvalue()
-        output.seek(0)
-        output.truncate(0)
-        for result, transaction in _result_export_query(db, execution_id):
-            record = _result_export_record(result, transaction)
-            record["atributos"] = json.dumps(record["atributos"], ensure_ascii=False)
-            writer.writerow(record)
-            yield output.getvalue()
-            output.seek(0)
-            output.truncate(0)
-    finally:
-        db.close()
-
-
 @models_router.get("", response_model=list[ModeloRespostaSchema])
 def list_detection_models(
     current_user: UsuarioModel = Depends(get_current_user),
@@ -772,15 +714,16 @@ def list_detection_models(
     )
 
 
-def _owned_execution(db: Session, execution_id: int, owner_id: int):
-    execution = (
-        db.query(ExecucaoAnaliseModel)
-        .filter(
-            ExecucaoAnaliseModel.id_execucao == execution_id,
-            ExecucaoAnaliseModel.id_usuario == owner_id,
-        )
-        .first()
+def _owned_execution(
+    db: Session, execution_id: int, owner_id: int, *, for_update: bool = False
+):
+    query = db.query(ExecucaoAnaliseModel).filter(
+        ExecucaoAnaliseModel.id_execucao == execution_id,
+        ExecucaoAnaliseModel.id_usuario == owner_id,
     )
+    if for_update:
+        query = query.with_for_update()
+    execution = query.first()
     if execution is None:
         raise HTTPException(status_code=404, detail="Execução não encontrada")
     return execution
@@ -827,6 +770,11 @@ def _execution_response(
         tamanho_chunk=execution.tamanho_chunk,
         limiar_aplicado=execution.limiar_aplicado,
         status=execution.status,
+        etapa_atual=(
+            get_execution_stage(execution.id_execucao)
+            if execution.status == StatusExecucao.EM_ANDAMENTO
+            else None
+        ),
         progresso_percentual=min(progress, 100),
         iniciada_em=execution.iniciada_em,
         finalizada_em=execution.finalizada_em,
