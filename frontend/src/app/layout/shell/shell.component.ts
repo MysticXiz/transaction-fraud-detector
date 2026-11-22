@@ -183,8 +183,8 @@ import { ProcessManagerService } from '../../core/services/process-manager.servi
 
         @if (isAdmin()) {
           <div class="admin-area">
-            <button class="admin-btn" type="button" routerLink="/admin/usuarios/novo" routerLinkActive="admin-btn-ativo">
-              + Criar usuário
+            <button class="admin-btn" type="button" routerLink="/dashboard/servidor" routerLinkActive="admin-btn-ativo">
+              Configurações do servidor
             </button>
           </div>
         }

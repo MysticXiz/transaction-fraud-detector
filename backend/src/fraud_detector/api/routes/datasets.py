@@ -36,6 +36,7 @@ from src.fraud_detector.computational.ingestion.dataset_csv import (
     DatasetTooLargeError,
 )
 from src.fraud_detector.config.settings import settings
+from src.fraud_detector.infrastructure.upload_settings import get_upload_limit
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
 from src.fraud_detector.infrastructure.models.dataset_import_job import (
     DatasetImportJobModel,
@@ -47,6 +48,11 @@ from src.fraud_detector.infrastructure.repositories.dataset_repository import (
 
 datasets_router = APIRouter(prefix="/datasets", tags=["Datasets"])
 logger = logging.getLogger(__name__)
+
+
+@datasets_router.get("/limite-upload", dependencies=[Depends(require_write_access)])
+def upload_limit() -> dict[str, int]:
+    return {"limite_bytes": get_upload_limit()}
 
 
 @datasets_router.post(
@@ -136,7 +142,7 @@ def upload_dataset_import(
     importer = ImportarDatasetUseCase(
         repository,
         settings.dataset_storage_path,
-        max_upload_bytes=settings.max_dataset_upload_bytes,
+        max_upload_bytes=get_upload_limit(),
         chunk_bytes=settings.dataset_upload_chunk_bytes,
         copy_buffer_bytes=settings.ingestion_copy_buffer_bytes,
         progress_every_rows=settings.ingestion_progress_every_rows,
@@ -233,7 +239,7 @@ def upload_dataset(
         return ImportarDatasetUseCase(
             repository,
             settings.dataset_storage_path,
-            max_upload_bytes=settings.max_dataset_upload_bytes,
+            max_upload_bytes=get_upload_limit(),
             chunk_bytes=settings.dataset_upload_chunk_bytes,
             copy_buffer_bytes=settings.ingestion_copy_buffer_bytes,
             progress_every_rows=settings.ingestion_progress_every_rows,

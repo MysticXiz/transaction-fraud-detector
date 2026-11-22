@@ -1,14 +1,11 @@
 from datetime import UTC, datetime
-from decimal import Decimal, ROUND_HALF_UP
-import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.fraud_detector.api.dependencies.auth import get_current_user
 from src.fraud_detector.api.dependencies.roles import require_write_access
 from src.fraud_detector.api.schemas.benchmark import (
-    BenchmarkConfiguracaoSchema,
     BenchmarkExecucaoRespostaSchema,
     BenchmarkRespostaSchema,
     CriarBenchmarkSchema,
@@ -17,21 +14,15 @@ from src.fraud_detector.api.schemas.opencl import (
     OpenCLCapabilitiesSchema,
     OpenCLDeviceSchema,
 )
-from src.fraud_detector.application.analysis_service import (
-    create_execution,
-    run_execution,
-)
 from src.fraud_detector.computational.execution.opencl_isolation_forest import (
     OpenCLExecutionError,
     OpenCLIsolationForestExecutor,
     OpenCLRuntimeUnavailableError,
 )
 from src.fraud_detector.domain.enums.algorithm_type import TipoAlgoritmo
-from src.fraud_detector.domain.enums.benchmark_role import PapelBenchmark
 from src.fraud_detector.domain.enums.execution_mode import ModoExecucao
 from src.fraud_detector.domain.enums.execution_status import StatusExecucao
 from src.fraud_detector.infrastructure.database.database import get_db
-from src.fraud_detector.infrastructure.database.database import SessionLocal
 from src.fraud_detector.infrastructure.models.benchmark import (
     BenchmarkExecucaoModel,
     BenchmarkModel,
@@ -45,7 +36,6 @@ from src.fraud_detector.infrastructure.models.execution import ExecucaoAnaliseMo
 from src.fraud_detector.infrastructure.models.user import UsuarioModel
 
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["Benchmarks"])
-logger = logging.getLogger(__name__)
 
 
 def _benchmark_device_capability(
@@ -93,10 +83,9 @@ def get_benchmark_capabilities(
     )
 
 
-@benchmarks_router.post("", response_model=BenchmarkRespostaSchema)
+@benchmarks_router.post("", response_model=BenchmarkRespostaSchema, status_code=202)
 def create_benchmark(
     payload: CriarBenchmarkSchema,
-    background_tasks: BackgroundTasks,
     current_user: UsuarioModel = Depends(require_write_access),
     db: Session = Depends(get_db),
 ):
@@ -207,192 +196,16 @@ def create_benchmark(
         id_dataset=dataset.id_dataset,
         descricao=description,
         status="PENDENTE",
+        configuracao={
+            "id_modelo": model.id_modelo,
+            "configuracoes": [item.model_dump(mode="json") for item in configs],
+        },
     )
     db.add(benchmark)
     db.commit()
     db.refresh(benchmark)
 
-    background_tasks.add_task(
-        run_benchmark_in_background,
-        benchmark.id_benchmark,
-        current_user.id_usuario,
-        dataset.id_dataset,
-        model.id_modelo,
-        [item.model_dump() for item in configs],
-    )
     return _benchmark_response(db, benchmark)
-
-
-def run_benchmark_in_background(
-    benchmark_id: int,
-    owner_id: int,
-    dataset_id: int,
-    model_id: int,
-    configs: list[dict[str, object]],
-) -> None:
-    db = SessionLocal()
-    try:
-        benchmark = (
-            db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
-        )
-        if benchmark is None:
-            return
-        db.query(BenchmarkModel).filter(
-            BenchmarkModel.id_benchmark == benchmark_id,
-            BenchmarkModel.status == "PENDENTE",
-        ).update({"status": "EM_ANDAMENTO"})
-        db.commit()
-        db.refresh(benchmark)
-        if benchmark.status in ("CANCELADO", "CANCELAMENTO_SOLICITADO"):
-            benchmark.status = "CANCELADO"
-            db.commit()
-            return
-
-        baseline_seconds: Decimal | None = None
-        configurations = [
-            BenchmarkConfiguracaoSchema.model_validate(item) for item in configs
-        ]
-        dataset = (
-            db.query(DatasetModel)
-            .filter_by(id_dataset=dataset_id, id_usuario=owner_id)
-            .first()
-        )
-        ordered_configs = [
-            item
-            for item in configurations
-            if item.modo_execucao == ModoExecucao.SEQUENCIAL
-        ]
-        ordered_configs.extend(
-            item
-            for item in configurations
-            if item.modo_execucao == ModoExecucao.PARALELO
-        )
-        for config in ordered_configs:
-            db.refresh(benchmark)
-            if benchmark.status == "CANCELAMENTO_SOLICITADO":
-                benchmark.status = "CANCELADO"
-                db.commit()
-                return
-
-            execution = create_execution(
-                db,
-                owner_id=owner_id,
-                dataset_id=dataset_id,
-                model_id=model_id,
-                mode=config.modo_execucao,
-                work_group_size=config.work_group_size,
-                device_type=(
-                    config.tipo_dispositivo
-                    if config.modo_execucao == ModoExecucao.PARALELO
-                    else None
-                ),
-                chunk_size=(
-                    dataset.total_registros
-                    if config.modo_execucao == ModoExecucao.PARALELO
-                    and dataset is not None
-                    else None
-                ),
-                threshold=None,
-            )
-            role = (
-                PapelBenchmark.BASELINE
-                if config.modo_execucao == ModoExecucao.SEQUENCIAL
-                else PapelBenchmark.COMPARACAO
-            )
-            association = BenchmarkExecucaoModel(
-                id_benchmark=benchmark_id,
-                id_execucao=execution.id_execucao,
-                papel=role,
-                tipo_dispositivo=config.tipo_dispositivo,
-            )
-            db.add(association)
-            db.commit()
-
-            db.refresh(benchmark)
-            if benchmark.status in ("CANCELAMENTO_SOLICITADO", "CANCELADO"):
-                execution.status = StatusExecucao.CANCELADA
-                execution.finalizada_em = datetime.now(UTC)
-                benchmark.status = "CANCELADO"
-                db.commit()
-                return
-
-            run_execution(
-                db,
-                execution.id_execucao,
-                opencl_device_type=(
-                    config.tipo_dispositivo
-                    if config.modo_execucao == ModoExecucao.PARALELO
-                    else None
-                ),
-            )
-            db.refresh(execution)
-            db.refresh(benchmark)
-            if (
-                benchmark.status == "CANCELAMENTO_SOLICITADO"
-                or execution.status == StatusExecucao.CANCELADA
-            ):
-                benchmark.status = "CANCELADO"
-                db.commit()
-                return
-            if execution.status == StatusExecucao.FALHA:
-                benchmark.status = "FALHA"
-                benchmark.mensagem_erro = (
-                    execution.mensagem_erro or "Uma configuração do benchmark falhou."
-                )
-                db.commit()
-                return
-
-            metric = (
-                db.query(MetricaExecucaoModel)
-                .filter_by(id_execucao=execution.id_execucao)
-                .first()
-            )
-            elapsed = metric.tempo_inferencia_s if metric is not None else None
-            if (
-                role == PapelBenchmark.BASELINE
-                and execution.status == StatusExecucao.CONCLUIDA
-            ):
-                baseline_seconds = elapsed
-                association.speedup = Decimal("1")
-                association.eficiencia = None
-            elif (
-                execution.status == StatusExecucao.CONCLUIDA
-                and elapsed is not None
-                and elapsed > 0
-                and baseline_seconds is not None
-                and baseline_seconds > 0
-            ):
-                speedup = _positive_decimal(
-                    baseline_seconds / elapsed,
-                    scale=4,
-                    maximum=Decimal("9999.9999"),
-                )
-                association.speedup = speedup
-                association.eficiencia = None
-            db.commit()
-
-        db.refresh(benchmark, with_for_update=True)
-        benchmark.status = (
-            "CANCELADO"
-            if benchmark.status == "CANCELAMENTO_SOLICITADO"
-            else "CONCLUIDO"
-        )
-        db.commit()
-    except Exception as error:
-        db.rollback()
-        logger.exception("Falha ao executar benchmark %s", benchmark_id)
-        benchmark = (
-            db.query(BenchmarkModel).filter_by(id_benchmark=benchmark_id).first()
-        )
-        if benchmark is not None:
-            if benchmark.status == "CANCELAMENTO_SOLICITADO":
-                benchmark.status = "CANCELADO"
-            else:
-                benchmark.status = "FALHA"
-                benchmark.mensagem_erro = str(error)[:2000]
-            db.commit()
-    finally:
-        db.close()
 
 
 @benchmarks_router.get("/{benchmark_id}", response_model=BenchmarkRespostaSchema)
@@ -505,12 +318,8 @@ def _benchmark_response(
         criado_em=benchmark.criado_em,
         status=benchmark.status,
         mensagem_erro=benchmark.mensagem_erro,
+        inferencia_sincronizada=(benchmark.configuracao or {}).get(
+            "inferencia_sincronizada", False
+        ),
         execucoes=items,
     )
-
-
-def _positive_decimal(
-    value: Decimal, *, scale: int, maximum: Decimal
-) -> Decimal | None:
-    rounded = value.quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
-    return rounded if 0 < rounded <= maximum else None

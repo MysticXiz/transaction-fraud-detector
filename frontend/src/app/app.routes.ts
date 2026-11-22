@@ -17,6 +17,13 @@ export const routes: Routes = [
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
       {
+        path: 'dashboard/servidor',
+        loadComponent: () =>
+          import('./features/dashboard/server-admin.component').then((m) => m.ServerAdminComponent),
+        title: 'Configurações do servidor',
+        canActivate: [adminGuard],
+      },
+      {
         path: 'dashboard',
         loadComponent: () =>
           import('./features/dashboard/dashboard.component').then((m) => m.DashboardComponent),
@@ -101,7 +108,7 @@ export const routes: Routes = [
         title: 'Minha Conta · Detecção de Fraude',
       },
       {
-        path: 'admin/usuarios/novo',
+        path: 'dashboard/servidor/usuarios/novo',
         loadComponent: () =>
           import('./features/admin/create-user/create-user.component').then(
             (m) => m.CreateUserComponent
@@ -109,6 +116,7 @@ export const routes: Routes = [
         title: 'Criar Usuário · Detecção de Fraude',
         canActivate: [adminGuard],
       },
+      { path: 'admin/usuarios/novo', redirectTo: 'dashboard/servidor/usuarios/novo' },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

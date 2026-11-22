@@ -5,23 +5,24 @@ import { catchError, throwError } from 'rxjs';
 import { AuthService } from '../services/auth.service';
 
 /**
- * Envia o token bearer nas requisições e redireciona para login em caso de 401.
+ * Envia a sessão nas chamadas da API e sinaliza requisições feitas pelo aplicativo.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);
 
-  const token = auth.token();
+  if (!req.url.startsWith('/api/')) return next(req);
+
   const clonado = req.clone({
     withCredentials: true,
-    setHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+    setHeaders: { 'X-Requested-With': 'XMLHttpRequest' },
   });
 
   return next(clonado).pipe(
     catchError((err: HttpErrorResponse) => {
-      if (err.status === 401) {
-        auth.logout();
-        router.navigateByUrl('/login');
+      if (err.status === 401 && !req.url.endsWith('/auth/session')) {
+        auth.clearSession();
+        void router.navigateByUrl('/login');
       }
       return throwError(() => err);
     })

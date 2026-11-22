@@ -4,17 +4,17 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-fraud}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
       POSTGRES_DB: ${POSTGRES_DB:-fraud_detection}
       TZ: America/Recife
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./database/seeds.sql:/docker-entrypoint-initdb.d/02_seeds.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraud} -d ${POSTGRES_DB:-fraud_detection}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -27,8 +27,14 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fraud}:${POSTGRES_PASSWORD:-fraud}@db:5432/${POSTGRES_DB:-fraud_detection}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-local-development-secret-change-me}
+      DATABASE_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-fraud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-fraud_detection}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Defina JWT_SECRET_KEY no .env}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       DATASET_STORAGE_PATH: /app/storage/datasets
@@ -36,13 +42,8 @@ services:
       DATASET_UPLOAD_CHUNK_BYTES: ${DATASET_UPLOAD_CHUNK_BYTES:-1048576}
       INGESTION_COPY_BUFFER_BYTES: ${INGESTION_COPY_BUFFER_BYTES:-1048576}
       INGESTION_PROGRESS_EVERY_ROWS: ${INGESTION_PROGRESS_EVERY_ROWS:-50000}
-      CORS_ORIGINS: '["http://localhost","http://127.0.0.1","http://localhost:4200","http://127.0.0.1:4200"]'
-      # PoCL usa todos os núcleos visíveis ao container quando estas variáveis
-      # NÃO são definidas. Defina-as no .env só se quiser limitar de propósito.
-      POCL_MAX_PU_COUNT: ${POCL_MAX_PU_COUNT:-}
-      POCL_CPU_MAX_THREADS: ${POCL_CPU_MAX_THREADS:-}
-      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-}
-      OPENBLAS_NUM_THREADS: ${OPENBLAS_NUM_THREADS:-1}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:4200","http://127.0.0.1:4200"]}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

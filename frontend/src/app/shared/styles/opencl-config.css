@@ -1,0 +1,58 @@
+.painel-opencl {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  background: var(--cor-superficie-suave);
+}
+
+.controle-opencl {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.controle-opencl .df-label { margin: 0; }
+
+.cabecalho-slider {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.valor-slider {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-opencl {
+  display: block;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--cor-primaria);
+}
+
+.ajuda-opencl {
+  margin: 0;
+  color: var(--cor-texto-suave);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.acoes-opencl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.acoes-opencl .df-btn {
+  min-height: 40px;
+  white-space: normal;
+}

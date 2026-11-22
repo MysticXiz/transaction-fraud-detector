@@ -3,9 +3,9 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { NotificationService } from './notification.service';
 import {
   LoginRequest,
-  LoginResponse,
   RegisterRequest,
   UpdateProfileRequest,
   Usuario,
@@ -16,25 +16,18 @@ export class AuthService {
   private readonly tokenStorageKey = 'df_access_token';
   private http = inject(HttpClient);
   private router = inject(Router);
+  private notifications = inject(NotificationService);
   private baseUrl = `${environment.apiUrl}/auth`;
 
   /** Usuário autenticado, carregado via GET /auth/me após login/refresh de página. */
   usuario = signal<Usuario | null>(null);
   estaAutenticado = computed(() => !!this.usuario());
 
-  token(): string | null {
-    return localStorage.getItem(this.tokenStorageKey);
-  }
-
   login(payload: LoginRequest) {
+    localStorage.removeItem(this.tokenStorageKey);
     return this.http
-      .post<LoginResponse>(`${this.baseUrl}/login`, payload)
-      .pipe(
-        tap(({ access_token }) => {
-          this.usuario.set(null);
-          localStorage.setItem(this.tokenStorageKey, access_token);
-        })
-      );
+      .post<void>(`${this.baseUrl}/session`, payload)
+      .pipe(tap(() => this.usuario.set(null)));
   }
 
   registrar(payload: RegisterRequest) {
@@ -54,8 +47,17 @@ export class AuthService {
   }
 
   logout(): void {
+    this.http.post<void>(`${this.baseUrl}/logout`, {}).subscribe({
+      next: () => {
+        this.clearSession();
+        void this.router.navigateByUrl('/login');
+      },
+      error: () => this.notifications.showError('Não foi possível encerrar a sessão. Tente novamente.'),
+    });
+  }
+
+  clearSession(): void {
     localStorage.removeItem(this.tokenStorageKey);
     this.usuario.set(null);
-    this.router.navigateByUrl('/login');
   }
 }

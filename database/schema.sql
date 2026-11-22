@@ -6,29 +6,17 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- 0. LIMPEZA (ambiente de desenvolvimento)
+-- 0. PROTEÇÃO DE INICIALIZAÇÃO
 -- ---------------------------------------------------------------------
-DROP VIEW  IF EXISTS vw_comparativo_benchmark CASCADE;
-DROP VIEW  IF EXISTS vw_resumo_execucao       CASCADE;
+BEGIN;
 
-DROP TABLE IF EXISTS log_evento           CASCADE;
-DROP TABLE IF EXISTS benchmark_execucao    CASCADE;
-DROP TABLE IF EXISTS dataset_import_job   CASCADE;
-DROP TABLE IF EXISTS benchmark             CASCADE;
-DROP TABLE IF EXISTS metrica_execucao      CASCADE;
-DROP TABLE IF EXISTS resultado_deteccao    CASCADE;
-DROP TABLE IF EXISTS execucao_analise      CASCADE;
-DROP TABLE IF EXISTS modelo_deteccao       CASCADE;
-DROP TABLE IF EXISTS transacao             CASCADE;
-DROP TABLE IF EXISTS dataset               CASCADE;
-DROP TABLE IF EXISTS usuario               CASCADE;
-
-DROP TYPE  IF EXISTS nivel_log       CASCADE;
-DROP TYPE  IF EXISTS papel_benchmark CASCADE;
-DROP TYPE  IF EXISTS tipo_algoritmo  CASCADE;
-DROP TYPE  IF EXISTS status_execucao CASCADE;
-DROP TYPE  IF EXISTS modo_execucao   CASCADE;
-DROP TYPE  IF EXISTS papel_usuario   CASCADE;
+DO $$
+BEGIN
+    IF to_regclass('usuario') IS NOT NULL THEN
+        RAISE EXCEPTION 'Banco já inicializado. Use as migrações incrementais.';
+    END IF;
+END
+$$;
 
 -- ---------------------------------------------------------------------
 -- 1. TIPOS ENUMERADOS
@@ -38,7 +26,6 @@ CREATE TYPE modo_execucao   AS ENUM ('SEQUENCIAL', 'PARALELO');
 CREATE TYPE status_execucao AS ENUM ('PENDENTE', 'EM_ANDAMENTO', 'CONCLUIDA', 'FALHA', 'CANCELADA');
 CREATE TYPE tipo_algoritmo  AS ENUM ('ISOLATION_FOREST', 'LOGISTIC_REGRESSION', 'XGBOOST', 'AUTOENCODER');
 CREATE TYPE papel_benchmark AS ENUM ('BASELINE', 'COMPARACAO');
-CREATE TYPE nivel_log       AS ENUM ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL');
 
 -- ---------------------------------------------------------------------
 -- 2. USUARIO
@@ -224,6 +211,7 @@ CREATE TABLE benchmark (
     descricao    VARCHAR(255),
     status       VARCHAR(32)  NOT NULL DEFAULT 'PENDENTE',
     mensagem_erro TEXT,
+    configuracao JSONB,
     criado_em    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_benchmark_usuario FOREIGN KEY (id_usuario)
         REFERENCES usuario (id_usuario) ON DELETE RESTRICT,
@@ -274,27 +262,6 @@ COMMENT ON TABLE benchmark_execucao IS
     'Entidade associativa com atributos proprios: speedup e eficiencia so existem no contexto da comparacao (RF09, UC06).';
 
 -- ---------------------------------------------------------------------
--- 10. LOG_EVENTO
--- ---------------------------------------------------------------------
-CREATE TABLE log_evento (
-    id_log        BIGSERIAL   PRIMARY KEY,
-    id_usuario    INTEGER,
-    id_execucao   INTEGER,
-    nivel         nivel_log   NOT NULL DEFAULT 'INFO',
-    origem        VARCHAR(120),
-    mensagem      TEXT        NOT NULL,
-    contexto      JSONB,
-    registrado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT fk_log_usuario  FOREIGN KEY (id_usuario)
-        REFERENCES usuario (id_usuario) ON DELETE SET NULL,
-    CONSTRAINT fk_log_execucao FOREIGN KEY (id_execucao)
-        REFERENCES execucao_analise (id_execucao) ON DELETE CASCADE
-);
-
-COMMENT ON TABLE log_evento IS
-    'Trilha de auditoria e registro de erros capturados durante a execucao paralela (RNF de Confiabilidade).';
-
--- ---------------------------------------------------------------------
 -- 11. INDICES
 -- ---------------------------------------------------------------------
 CREATE INDEX idx_dataset_usuario      ON dataset (id_usuario);
@@ -317,7 +284,6 @@ CREATE INDEX idx_resultado_suspeita    ON resultado_deteccao (id_execucao, score
     WHERE is_suspeita = TRUE;
 
 CREATE INDEX idx_bexec_benchmark       ON benchmark_execucao (id_benchmark);
-CREATE INDEX idx_log_execucao          ON log_evento (id_execucao, registrado_em DESC);
 
 -- ---------------------------------------------------------------------
 -- 12. VISOES DE APOIO
@@ -386,3 +352,5 @@ ORDER BY b.id_benchmark, e.num_workers;
 -- =====================================================================
 -- FIM DO SCRIPT
 -- =====================================================================
+
+COMMIT;

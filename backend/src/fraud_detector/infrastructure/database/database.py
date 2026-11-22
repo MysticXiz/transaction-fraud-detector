@@ -3,9 +3,8 @@ from sqlalchemy import create_engine, text
 from src.fraud_detector.config.settings import settings
 
 # O engine e a fábrica de sessões são compartilhados pela aplicação inteira.
-engine = create_engine(
-    settings.database_url,
-)
+assert settings.database_url is not None
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(
     bind=engine,

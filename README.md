@@ -17,7 +17,7 @@ O sistema permite que analistas de fraude importem datasets de transações fina
 
 ### Backend
 - **FastAPI** - Framework web moderno e rápido
-- **SQLAlchemy 2.0** - ORM assíncrono/síncrono
+- **SQLAlchemy 2.0** - ORM síncrono
 - **PostgreSQL 16** - Banco de dados relacional
 - **PyOpenCL** - Computação paralela OpenCL
 - **Pydantic/Pydantic Settings** - Validação e configuração
@@ -45,7 +45,7 @@ O sistema permite que analistas de fraude importem datasets de transações fina
 ### Execução local (sem Docker)
 - Python 3.11+
 - PostgreSQL 16+
-- Node.js 22+ e npm
+- Node.js 24 e npm
 - Runtime OpenCL compatível (PoCL, NVIDIA CUDA, AMD ROCm, Intel OpenCL)
 
 ## Instruções de instalação e configuração
@@ -62,17 +62,18 @@ cd projeto-transacao
 Copy-Item .env.example .env
 ```
 
-Edite o arquivo `.env` e ajuste pelo menos:
+Os valores de exemplo são suficientes para rodar localmente. Personalize as credenciais antes de compartilhar a instalação:
 - `POSTGRES_PASSWORD` - Senha segura para o banco
 - `JWT_SECRET_KEY` - Chave secreta forte para JWT (mín. 32 chars)
-- `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` - Expiração do token (padrão: 30)
+- `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` — Credenciais do primeiro administrador. Use uma senha de pelo menos 12 caracteres.
+- `AUTH_COOKIE_SECURE=true` — Ative ao publicar o sistema via HTTPS. O HTTP local usa `false`.
 
 ### 3. Suba com Docker Compose
 ```powershell
-docker compose up --build
+docker compose up --build --remove-orphans
 ```
 
-Aguarde a inicialização completa (health checks do banco e backend).
+Aguarde o PostgreSQL e o health check do backend. O backend processa a fila de análises e benchmarks em segundo plano.
 
 ### 4. Acesse o sistema
 - **Frontend**: http://localhost:4200
@@ -82,39 +83,36 @@ Aguarde a inicialização completa (health checks do banco e backend).
 
 ## Orientações para configurar o banco de dados
 
-### Com Docker (automático)
-O banco é criado automaticamente na primeira execução:
-1. `database/schema.sql` - Cria tabelas, índices, constraints
-2. `database/seeds.sql` - Dados iniciais (modelos de detecção)
-3. Bootstrap da aplicação - Cria usuário admin padrão se tabela vazia
+### Com Docker
+O PostgreSQL executa `database/schema.sql` e `database/seeds.sql` na primeira inicialização de um volume vazio. O Alembic é executado manualmente.
 
-### Execução local (manual)
+Em um volume existente, altere a senha do usuário no PostgreSQL antes de atualizar o valor de `POSTGRES_PASSWORD` no `.env`. A variável do contêiner é aplicada na criação do volume. Se a instalação usava o segredo JWT de exemplo, gere um novo segredo e autentique-se novamente.
+
+### Execução local
+Crie um banco PostgreSQL vazio com o usuário da aplicação como proprietário. O backend monta a URL com `DATABASE_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`. Para fornecer a URL completa, configure `DATABASE_URL` no formato `postgresql+psycopg://usuario:senha@localhost:5432/banco`. Para inicializar pelo fluxo SQL, execute os comandos abaixo.
+
 ```powershell
-# Criar banco e usuário
-psql -U postgres -c "CREATE DATABASE fraud_detection;"
-psql -U postgres -c "CREATE USER fraud WITH PASSWORD 'sua_senha';"
-psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE fraud_detection TO fraud;"
-
-# Executar schema e seeds
-Get-Content database/schema.sql | psql -U fraud -d fraud_detection
-Get-Content database/seeds.sql | psql -U fraud -d fraud_detection
+psql -h localhost -U fraud -d fraud_detection -v ON_ERROR_STOP=1 -f database/schema.sql
+psql -h localhost -U fraud -d fraud_detection -v ON_ERROR_STOP=1 -f database/seeds.sql
 ```
 
-### Patches incrementais
-Para bancos existentes, aplique patches sem apagar dados:
-```powershell
-Get-Content database/patches/work_group_size_limit.sql | docker compose exec -T db psql -U fraud -d fraud_detection
-```
+### Alembic (uso futuro)
+
+A revisão `0001_initial_schema` cria o esquema completo e cadastra os modelos iniciais. Os arquivos `schema.sql` e `seeds.sql` fazem parte dessa revisão. Registre alterações futuras em novas revisões.
+
+Para gerar o SQL sem conexão com o banco, execute `python -m alembic upgrade head --sql` na raiz do repositório.
+
+Ao adotar o Alembic, execute `python -m alembic upgrade head` em um PostgreSQL vazio. Se você já recriou o banco com os scripts SQL desta versão, registre a revisão correspondente com `python -m alembic stamp 0001_initial_schema` depois de confirmar que o esquema corresponde a ela. Para aplicar revisões posteriores, use `python -m alembic upgrade head`. No Docker, comandos para um banco já inicializado podem ser executados no contêiner do backend com o prefixo `docker compose exec backend`.
 
 ## Comandos para executar o sistema
 
 ### Docker Compose
 ```powershell
 # Subir tudo (build + start)
-docker compose up --build
+docker compose up --build --remove-orphans
 
 # Subir em background
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
 
 # Ver logs
 docker compose logs -f backend
@@ -123,18 +121,16 @@ docker compose logs -f frontend
 # Parar
 docker compose down
 
-# Parar e remover volumes (dados perdidos!)
-docker compose down -v
 ```
 
 ### Backend local
+Execute na raiz do repositório.
+
 ```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m venv backend/.venv
+.\backend\.venv\Scripts\Activate.ps1
+python -m pip install -r backend/requirements.txt
 $env:PYTHONPATH='backend'
-# Configure DATABASE_URL no .env local
 python -m uvicorn src.fraud_detector.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -199,8 +195,8 @@ projeto-transacao/
 ├── database/
 │   ├── schema.sql               # DDL completo
 │   ├── seeds.sql                # Dados iniciais
-│   └── patches/                 # Patches incrementais
-├── docs/                        # Documentação técnica e sprints
+│   └── migrations/              # Revisões do Alembic
+├── alembic.ini
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -212,11 +208,7 @@ A documentação interativa completa (Swagger/OpenAPI) está disponível em **ht
 
 ### Autenticação
 
-Todos os endpoints de dados exigem **JWT Bearer Token** no header `Authorization`, exceto:
-- `GET /` - Health check básico
-- `GET /health` - Status detalhado
-- `POST /auth/login` - Login
-- `POST /auth/register` - Registro (apenas ADMIN)
+Os endpoints protegidos aceitam JWT Bearer no cabeçalho `Authorization`. O Angular usa uma sessão por cookie `HttpOnly` e `SameSite=Lax` com o cabeçalho `X-Requested-With: XMLHttpRequest` nas operações de escrita. Em uma publicação externa, use HTTPS e configure apenas origens CORS confiáveis.
 
 **Perfis de acesso:**
 - **ADMIN**: Todas as operações, incluindo cadastro de usuários
@@ -228,7 +220,9 @@ Todos os endpoints de dados exigem **JWT Bearer Token** no header `Authorization
 #### Autenticação (`/auth`)
 | Método | Rota | Descrição | Auth |
 |--------|------|-----------|------|
-| POST | `/auth/login` | Login com email/senha, retorna JWT | Não |
+| POST | `/auth/login` | Login de clientes da API, retorna JWT | Pública |
+| POST | `/auth/session` | Abre sessão por cookie | Cabeçalho de sessão |
+| POST | `/auth/logout` | Limpa o cookie da sessão | Cabeçalho de sessão |
 | POST | `/auth/register` | Cria usuário (apenas ADMIN) | ADMIN |
 | GET | `/auth/me` | Perfil do usuário logado | JWT |
 | PATCH | `/auth/me` | Atualiza nome, email ou senha | Escrita |
@@ -265,11 +259,11 @@ Todos os endpoints de dados exigem **JWT Bearer Token** no header `Authorization
 | GET | `/analises/capacidades` | Dispositivos OpenCL detectados | JWT |
 | POST | `/analises` | Cria execução (dataset, modelo, modo, device) | Escrita |
 | GET | `/analises` | Histórico com filtros | JWT |
-| GET | `/analises/{id}` | Detalhe da execução | JWT |
+| GET | `/analises/{id}` | Detalhe e progresso da execução | JWT |
 | DELETE | `/analises/{id}` | Remove execução | Escrita |
 | POST | `/analises/{id}/cancelar` | Solicita cancelamento | Escrita |
-| GET | `/analises/{id}/status` | Progresso (polling) | JWT |
-| GET | `/analises/{id}/resultados` | Resultados paginados/filtrados | JWT |
+| GET | `/analises/{id}/resultados` | Resultados paginados e filtrados | JWT |
+| GET | `/analises/{id}/resultados/exportar` | CSV ou JSON de uma análise concluída | JWT |
 | GET | `/analises/{id}/resultados/{transaction_id}` | Detalhe + histórico | JWT |
 
 #### Benchmarks (`/benchmarks`)
@@ -287,7 +281,7 @@ Todos os endpoints de dados exigem **JWT Bearer Token** no header `Authorization
 ```bash
 curl -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@admin.com", "senha": "admin123"}'
+  -d '{"email": "administrador@exemplo.com", "senha": "<senha-configurada>"}'
 ```
 Resposta:
 ```json
@@ -327,30 +321,41 @@ curl -X POST http://localhost:8000/analises \
 
 #### Acompanhar progresso (polling)
 ```bash
-curl -X GET http://localhost:8000/analises/{id}/status \
+curl -X GET http://localhost:8000/analises/{id} \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 #### Obter resultados
 ```bash
-curl -X GET "http://localhost:8000/analises/{id}/resultados?pagina=1&tamanho_pagina=25&escore_minimo=0.7" \
+curl -X GET "http://localhost:8000/analises/{id}/resultados?pagina=1&tamanho_pagina=25&escore_minimo=0.7&is_suspeita=true" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 #### Exportar resultados
-```bash
-# PDF
-curl -X GET "http://localhost:8000/analises/{id}/resultados/exportar?formato=pdf" \
-  -H "Authorization: Bearer $TOKEN" \
-  --output analise-{id}.pdf
 
-# CSV
-curl -X GET "http://localhost:8000/analises/{id}/resultados/exportar?formato=csv" \
+CSV e JSON usam os mesmos filtros opcionais da tabela, incluindo `is_suspeita`, e incluem todas as linhas que correspondem aos filtros. O download lê os resultados persistidos em lotes e envia o arquivo progressivamente. A sessão da exportação ocupa uma conexão PostgreSQL durante o download.
+
+O JSON contém um array com uma transação por linha. Em arquivos grandes, filtre os resultados antes de exportar ou use `Get-Content .\analise-123.json -TotalCount 6` no PowerShell para ver as primeiras linhas.
+
+```bash
+curl -f "http://localhost:8000/analises/{id}/resultados/exportar?formato=csv&is_suspeita=true" \
   -H "Authorization: Bearer $TOKEN" \
   --output analise-{id}.csv
+
+curl -f "http://localhost:8000/analises/{id}/resultados/exportar?formato=json" \
+  -H "Authorization: Bearer $TOKEN" \
+  --output analise-{id}.json
 ```
 
 #### Benchmark
+
+Em novas análises paralelas comuns, a tela de resultados soma os tempos registrados pelo dispositivo OpenCL por lote, incluindo cópia de entrada, kernel e cópia de saída. O tempo restante é a diferença em relação ao tempo total após descontar leitura, pré-processamento e inferência. A gravação pode ocorrer junto com o OpenCL, então essa diferença não mede toda a escrita no banco. Para ver o tempo de treinamento e a espera pela gravação final, consulte os logs do backend.
+
+O speedup de inferência divide o tempo sequencial pelo tempo da configuração comparada. Para cada configuração, o benchmark aquece o primeiro lote e soma o tempo necessário para produzir os scores de todos os lotes. No OpenCL, cada medição começa antes de enviar o lote e termina quando os scores retornam, incluindo as transferências. Uma falha do OpenCL interrompe a comparação.
+
+O treinamento usa uma thread no modo sequencial e a capacidade de CPU detectada no modo paralelo. Os logs do backend mostram o dispositivo OpenCL, as unidades de computação e a ocupação média do processo durante as fases de treinamento e inferência. A ocupação durante a inferência inclui as threads de gravação que estiverem ativas nessa fase.
+
+O tempo total inclui leitura, pré-processamento, ajuste do modelo, aquecimento e gravação dos resultados. Benchmarks antigos com execução paralela usam a medição anterior e precisam ser executados novamente para obter o speedup pelo método atual.
 ```bash
 curl -X POST http://localhost:8000/benchmarks \
   -H "Authorization: Bearer $TOKEN" \
@@ -366,38 +371,33 @@ curl -X POST http://localhost:8000/benchmarks \
   }'
 ```
 
-## Usuário padrão (primeiro acesso)
+## Primeiro acesso
 
-Na primeira criação do banco, quando a tabela de usuários está vazia, a API cria o usuário inicial:
+Em um banco sem usuários, a API cria o administrador com os valores de `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD`. No exemplo, o login é `adm@adm.com` com a senha `admin-local-1234`. Em um banco com a conta padrão antiga ainda usando a senha pública, as mesmas variáveis atualizam essa conta, preservando seu ID e seus dados.
 
-- **Email/login**: `admin@admin.com`
-- **Senha**: `admin123`
-- **Perfil**: administrador
+### Configurações do servidor
 
-**Importante**: 
-1. Entre com o usuário padrão
-2. Pela interface, crie um novo usuário com perfil administrador
-3. Entre com esse novo usuário administrador
-4. Exclua o usuário padrão
-
-A senha padrão é pública e deve ser trocada ou removida após configurar outro administrador.
+O administrador pode acessar **Dashboard → Configurações do servidor** para alterar o limite global de upload e criar ou gerenciar contas. O limite varia de 1 a 10.240 MiB por CSV, entra em vigor nos próximos uploads e fica salvo no volume de datasets. `MAX_DATASET_UPLOAD_BYTES` fornece o valor inicial até a primeira alteração pelo painel.
 
 ## Variáveis de ambiente
 
 | Variável | Default | Descrição |
 |----------|---------|-----------|
 | `POSTGRES_USER` | `fraud` | Usuário PostgreSQL |
-| `POSTGRES_PASSWORD` | `fraud` | Senha PostgreSQL (troque em produção!) |
+| `POSTGRES_PASSWORD` | Obrigatória no Compose | Senha PostgreSQL |
 | `POSTGRES_DB` | `fraud_detection` | Nome do banco |
 | `POSTGRES_PORT` | `5432` | Porta do banco |
 | `BACKEND_PORT` | `8000` | Porta da API |
 | `FRONTEND_PORT` | `4200` | Porta do frontend |
-| `JWT_SECRET_KEY` | segredo local | Chave JWT (mín. 32 chars em produção) |
+| `JWT_SECRET_KEY` | Obrigatória | Chave JWT com pelo menos 32 caracteres |
 | `JWT_ALGORITHM` | `HS256` | Algoritmo JWT |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Validade do token |
-| `DATABASE_URL` | composta pelo Compose | URL SQLAlchemy |
+| `DATABASE_HOST` | `127.0.0.1` no exemplo, `db` no Compose | Host do PostgreSQL |
+| `DATABASE_URL` | Opcional | URL SQLAlchemy que substitui host e credenciais na execução local |
+| `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` | Opcionais | Criação ou atualização da conta inicial |
+| `AUTH_COOKIE_SECURE` | `false` | Defina `true` para HTTPS |
 | `DATASET_STORAGE_PATH` | `/app/storage/datasets` | Diretório CSVs |
-| `MAX_DATASET_UPLOAD_BYTES` | `209715200` | Limite upload (200MB) |
+| `MAX_DATASET_UPLOAD_BYTES` | `209715200` | Limite inicial de upload (200 MiB) |
 | `DATASET_UPLOAD_CHUNK_BYTES` | `1048576` | Chunk size (1MB) |
 | `INGESTION_COPY_BUFFER_BYTES` | `1048576` | Buffer COPY PostgreSQL |
 | `INGESTION_PROGRESS_EVERY_ROWS` | `50000` | Frequência progresso |
@@ -406,27 +406,10 @@ A senha padrão é pública e deve ser trocada ou removida após configurar outr
 ## Uso de GPU (OpenCL)
 
 ### No Docker
-O backend usa **PoCL** (Portable Computing Language) e expõe apenas dispositivo **CPU OpenCL**. A GPU NVIDIA não é acessível via OpenCL no Docker Desktop/WSL2 atual.
+O backend usa **PoCL** (Portable Computing Language) e expõe apenas dispositivo **CPU OpenCL**. O runtime detecta os recursos de CPU disponíveis no ambiente, sem um limite de núcleos definido pelo projeto. A GPU NVIDIA não é acessível via OpenCL no Docker Desktop/WSL2 atual.
 
 ### Para usar GPU NVIDIA
-1. Suba apenas banco e frontend pelo Docker:
-   ```powershell
-   docker compose up -d db frontend
-   ```
-2. No Windows, execute o backend nativamente:
-   ```powershell
-   cd backend
-   python -m venv .venv
-   .\.venv\Scripts\activate
-   python -m pip install -r requirements.txt
-   # Configure .env local com DATABASE_URL=postgresql://fraud:senha@localhost:5432/fraud_detection
-   python -m uvicorn src.fraud_detector.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
-   ```
-3. Inicie frontend localmente:
-   ```powershell
-   cd frontend
-   npm run start:proxy
-   ```
+Suba o PostgreSQL com `docker compose up -d db`. Execute o backend e o frontend no host conforme as instruções de execução local. O ambiente Python do backend precisa enxergar a GPU pelo runtime OpenCL.
 
 ### Validação
 ```bash
@@ -439,11 +422,12 @@ docker compose exec backend python -c "import pyopencl as cl; print([(p.name, [d
 
 ## Limitações conhecidas
 
-- Jobs usam `BackgroundTasks`; reinício pode deixar job em estado não terminal
+- Análises e benchmarks pendentes ficam no PostgreSQL e continuam disponíveis após reinício. O backend marca execuções interrompidas como falha para que possam ser iniciadas novamente.
+- A leitura e a inferência trabalham em blocos. O ajuste global do pré-processador e do Isolation Forest ainda mantém a matriz numérica do dataset em memória.
 - Nginx localiza backend por nome de serviço Compose; fora do Compose usa `proxy.conf.json`
 - OpenCL depende de runtime/drivers disponíveis
 - Alguns endpoints retornam listas completas; paginação pode ser necessária em produção
-- Seed contém credenciais de desenvolvimento (não usar em produção)
+- Isolation Forest é o único detector executável. A entrada de Regressão Logística no seed é uma referência histórica.
 
 ## Integrantes da equipe
 
